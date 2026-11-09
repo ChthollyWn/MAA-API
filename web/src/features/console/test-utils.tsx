@@ -390,6 +390,21 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
       return pageOf(items, page, size)
     }
 
+    const memoryReviewMatch = /^\/api\/agent\/memories\/([^/]+)\/review$/.exec(url.pathname)
+    if (memoryReviewMatch && request.method === 'POST') {
+      const id = decodeURIComponent(memoryReviewMatch[1]!)
+      const memory = state.memories.find((item) => item.id === id)
+      if (!memory) {
+        return json({ error: { code: 'MEMORY_NOT_FOUND', message: '记忆不存在' } }, 404)
+      }
+      if (memory.status !== 'proposed') {
+        return json({ error: { code: 'MEMORY_NOT_PROPOSED', message: '这条记忆已经不在待审核状态' } }, 409)
+      }
+      memory.status = (body as Json | undefined)?.approved ? 'active' : 'rejected'
+      memory.reviewed_at = '2026-11-09T05:00:00Z'
+      return json(memory)
+    }
+
     if (url.pathname === '/api/agent/watchdog/alerts' && request.method === 'GET') {
       const resolved = url.searchParams.get('resolved') === 'true'
       const severity = url.searchParams.get('severity')
@@ -533,6 +548,8 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
     ticketListQueries: () => requests.filter((item) => item.method === 'GET' && item.path === '/api/agent/tickets'),
     watchdogAlertQueries: () => requests.filter((item) => item.method === 'GET' && item.path === '/api/agent/watchdog/alerts'),
     watchdogAlertResolves: () => requests.filter((item) => item.method === 'POST' && item.path.endsWith('/resolve') && item.path.startsWith('/api/agent/watchdog/alerts/')),
+    memoryReviews: () => requests.filter((item) => item.method === 'POST' && /^\/api\/agent\/memories\/[^/]+\/review$/.test(item.path)),
+    ticketMessagePosts: () => requests.filter((item) => item.method === 'POST' && /^\/api\/agent\/tickets\/[^/]+\/messages$/.test(item.path)),
   }
 }
 

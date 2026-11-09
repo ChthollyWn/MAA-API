@@ -1062,13 +1062,17 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
-    expect(await screen.findByRole('complementary', { name: '指挥台侧栏' })).toBeInTheDocument()
-    expect(await screen.findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
-    expect(screen.getByText('等体力的日常')).toBeInTheDocument()
-    expect(screen.getByText('卡住的剿灭')).toBeInTheDocument()
-    expect(screen.getByText('来自工单「确认来源」· 通用 Worker')).toBeInTheDocument()
-    expect(screen.getByText('来自工单「提问来源」· 通用 Worker')).toBeInTheDocument()
+    const session = await screen.findByRole('region', { name: '总控会话' })
+    expect(await within(session).findByRole('heading', { name: '待你处理' })).toBeInTheDocument()
+    expect(await within(session).findByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
+    expect(await within(session).findByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
+    expect(within(session).getByText('等体力的日常')).toBeInTheDocument()
+    expect(within(session).getByText('卡住的剿灭')).toBeInTheDocument()
+    expect(within(session).getByText('来自工单「确认来源」· 通用 Worker')).toBeInTheDocument()
+    expect(within(session).getByText('来自工单「提问来源」· 通用 Worker')).toBeInTheDocument()
+    // 「待你处理」只在主会话里，桌面右栏不再重复。
+    const aside = screen.getByRole('complementary', { name: '指挥台侧栏' })
+    expect(within(aside).queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument()
 
     const kinds = Array.from(document.querySelectorAll('[data-attention-kind]'))
       .map((node) => node.getAttribute('data-attention-kind'))
@@ -1078,7 +1082,7 @@ describe('M72 指挥台', () => {
     expect(ids).toEqual(['confirm-1', 'q-1', 't-blocked', 't-waiting'])
   })
 
-  it('lists pending memories as one attention entry (M79)', async () => {
+  it('reviews pending memories in place (M79)', async () => {
     stubMedia((query) => query === '(min-width: 1024px)')
     const api = createConsoleApi({
       messages: [],
@@ -1090,10 +1094,49 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
-    const link = await screen.findByRole('link', { name: /2 条记忆待审核/ })
-    expect(link).toHaveAttribute('href', '/more/memories')
+    expect(await screen.findByText('2 条记忆待审核')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: '去记忆页' })).toHaveAttribute('href', '/more/memories')
+    fireEvent.click(screen.getByRole('button', { name: '展开审核' }))
     expect(screen.getByText('刷图不要用源石恢复理智')).toBeInTheDocument()
     expect(screen.queryByText('已生效的记忆')).not.toBeInTheDocument()
+
+    const first = document.querySelector('[data-memory-id="m1"]') as HTMLElement
+    fireEvent.click(within(first).getByRole('button', { name: '批准' }))
+    await waitFor(() => expect(api.memoryReviews()).toHaveLength(1))
+    expect(api.memoryReviews()[0]?.body).toEqual({ approved: true })
+    await waitFor(() => expect(screen.queryByText('刷图不要用源石恢复理智')).not.toBeInTheDocument())
+
+    const second = document.querySelector('[data-memory-id="m2"]') as HTMLElement
+    fireEvent.click(within(second).getByRole('button', { name: '拒绝' }))
+    await waitFor(() => expect(api.memoryReviews()).toHaveLength(2))
+    expect(api.memoryReviews()[1]?.body).toEqual({ approved: false })
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
+  })
+
+  it('shows the memory review error without breaking the other rows', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      memories: [
+        makeMemory({ id: 'm1', content: '刷图不要用源石恢复理智' }),
+        makeMemory({ id: 'm2', content: 'ADB 掉线先重连一次' }),
+      ],
+      overrides: [({ method, path }) => (
+        method === 'POST' && path === '/api/agent/memories/m1/review'
+          ? json({ error: { code: 'MEMORY_NOT_PROPOSED', message: '这条记忆已经不在待审核状态，刷新后再试。' } }, 409)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: '展开审核' }))
+    const first = document.querySelector('[data-memory-id="m1"]') as HTMLElement
+    fireEvent.click(within(first).getByRole('button', { name: '批准' }))
+    expect(await screen.findByText('这条记忆已经不在待审核状态，刷新后再试。')).toBeInTheDocument()
+
+    // 其它行不受影响，仍可处理。
+    const second = document.querySelector('[data-memory-id="m2"]') as HTMLElement
+    expect(within(second).getByRole('button', { name: '拒绝' })).toBeEnabled()
   })
 
   it('lists unresolved critical watchdog alerts and resolves them (M83)', async () => {
@@ -1122,7 +1165,7 @@ describe('M72 指挥台', () => {
     await waitFor(() => expect(screen.queryByText('流水线 3 分钟没有回调')).not.toBeInTheDocument())
   })
 
-  it('opens the attention sheet from the summary bar on phones', async () => {
+  it('renders attention cards in the main session on phones', async () => {
     const confirmation = makeConfirmation({ confirmation_id: 'confirm-1' })
     const question = makeQuestion({ question_id: 'q-1' })
     const api = createConsoleApi({
@@ -1133,21 +1176,172 @@ describe('M72 指挥台', () => {
     })
     renderConsole(api)
 
-    const summary = await screen.findByRole('button', { name: '2 件事等你处理' })
-    fireEvent.click(summary)
-    const sheet = await screen.findByRole('dialog', { name: '待你处理' })
-    expect(within(sheet).getByRole('heading', { name: '需要确认此操作' })).toBeInTheDocument()
-    expect(within(sheet).getByRole('heading', { name: '需要你选择' })).toBeInTheDocument()
-    expect(await within(sheet).findByText('此操作会使用一次理智药。')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: '待你处理' })).toBeInTheDocument()
+    // 手机端不再有汇总行与底部面板：待办卡直接在主会话里。
+    expect(screen.queryByRole('button', { name: '2 件事等你处理' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('dialog', { name: '待你处理' })).not.toBeInTheDocument()
 
-    fireEvent.click(within(sheet).getByRole('button', { name: '批准并继续' }))
+    fireEvent.click(await screen.findByRole('button', { name: '批准并继续' }))
     await waitFor(() => expect(api.confirmationPosts()).toHaveLength(1))
-
-    fireEvent.click(within(sheet).getByRole('radio', { name: /理智药/ }))
-    fireEvent.click(within(sheet).getByRole('button', { name: '提交' }))
+    fireEvent.click(await screen.findByRole('radio', { name: /理智药/ }))
+    fireEvent.click(screen.getByRole('button', { name: '提交' }))
     await waitFor(() => expect(api.questionPosts()).toHaveLength(1))
 
-    await waitFor(() => expect(screen.queryByRole('dialog', { name: '待你处理' })).not.toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
+  })
+
+  it('replies to a waiting ticket in place', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-waiting',
+        title: '每日免费单抽没领到',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: '请确认是否批准验证流水线？', ref_id: null },
+      })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('请确认是否批准验证流水线？')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '回复' }))
+    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '批准，明早 04:00 跑' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(1))
+    expect(api.ticketMessagePosts()[0]?.path).toBe('/api/agent/tickets/t-waiting/messages')
+    expect(api.ticketMessagePosts()[0]?.body).toEqual({ content: '批准，明早 04:00 跑' })
+    expect(await screen.findByText('已发给工单')).toBeInTheDocument()
+    expect(screen.queryByLabelText('回复工单')).not.toBeInTheDocument()
+  })
+
+  it('keeps the ticket reply failure visible and retryable', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-waiting',
+        title: '每日免费单抽没领到',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: '请确认是否批准验证流水线？', ref_id: null },
+      })],
+      overrides: [({ method, path }) => (
+        method === 'POST' && path === '/api/agent/tickets/t-waiting/messages'
+          ? json({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用' } }, 500)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: '回复' }))
+    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '批准' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+
+    expect(await screen.findByText('发送消息失败：服务暂时不可用')).toBeInTheDocument()
+    const draft = screen.getByLabelText('回复工单') as HTMLTextAreaElement
+    expect(draft.value).toBe('批准')
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(2))
+  })
+
+  it('reports a ticket that has ended when replying', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-waiting',
+        title: '通关活动 EX 关',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: 'EX 段开放了吗？', ref_id: null },
+      })],
+      overrides: [({ method, path }) => (
+        method === 'POST' && path === '/api/agent/tickets/t-waiting/messages'
+          ? json({ error: { code: 'TICKET_ENDED', message: '工单已结束，不能再发消息' } }, 409)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: '回复' }))
+    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '已开放' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+
+    expect(await screen.findByText('发送消息失败：工单已结束，不能再发消息')).toBeInTheDocument()
+  })
+
+  it('hides reply for a ticket without human action', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({ id: 't-blocked', title: '更新活动资源', status: 'blocked', summary: '卡在缺少工具' })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('卡在缺少工具')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /更新活动资源/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '回复' })).not.toBeInTheDocument()
+  })
+
+  it('shows a retryable error when attention cannot be read', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      overrides: [({ method, path }) => (
+        method === 'GET' && path === '/api/agent/memories'
+          ? json({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用' } }, 500)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('读取待你处理的事项失败：服务暂时不可用')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+  })
+
+  it('hides the attention section when nothing is pending', async () => {
+    const api = createConsoleApi({ messages: [] })
+    renderConsole(api)
+
+    expect(await screen.findByText('你可以这样开始')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument()
+  })
+
+  it('shows each pending card once when the live turn already renders it', async () => {
+    const confirmation = makeConfirmation({
+      confirmation_id: 'confirm-1',
+      action: 'consume_resource',
+      risk_level: 'consume',
+      reason: '此操作会使用一次理智药。',
+    })
+    let held: ReturnType<typeof heldStream> | null = null
+    const api = createConsoleApi({
+      messages: [],
+      confirmations: [confirmation],
+      confirmationDetails: { 'confirm-1': confirmation },
+      stream: () => {
+        held = heldStream([
+          runStart(),
+          event('tool_start', { run_id: 'r1', tool_call_id: 'call-1', name: 'submit_pipeline', arguments: {} }),
+          event('confirmation_required', {
+            run_id: 'r1',
+            tool_call_id: 'call-1',
+            name: 'submit_pipeline',
+            confirmation_id: 'confirm-1',
+            expires_at: confirmation.expires_at,
+          }),
+        ])
+        return held.response
+      },
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('你可以这样开始')).toBeInTheDocument()
+    await sendText('刷一次 1-7')
+
+    // 实时副本里挂着的确认卡已经就地展示；同一张不再出现在「待你处理」里。
+    await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
+    expect(screen.getAllByRole('heading', { name: '需要确认此操作' })).toHaveLength(1)
+    await act(async () => { held?.close() })
   })
 
   it('offers to write in the composer when there are no active tickets', async () => {
