@@ -1,6 +1,6 @@
 # M87 验证闸门与作业研究闭环（台账）
 
-- 分支：`verifier-copilot-loop`；基点：`dev` = `11ebbe2`（M86 合并后的提交）；合并：待主 agent 复核后执行（本任务不做合并、tag、切分支）；tag：`v3-m87`（待主 agent）
+- 分支：`verifier-copilot-loop`（已合并并删除）；基点：`dev` = `11ebbe2`（M86 合并后的提交）；合并：`79f3539`（`merge: 验证闸门与作业研究闭环（M87，见 docs/v3/13 §8.181）`）；tag：`v3-m87`
 - spec：[m87-verifier-copilot-loop](../specs/m87-verifier-copilot-loop.md)（929 行，2026-11-09 升格版）
 - 计划：[m87-verifier-copilot-loop](../plans/m87-verifier-copilot-loop.md)（755 行）
 - 决策记录：[docs/v3/13 §8.181](../13-决策记录.md)
@@ -83,6 +83,12 @@
 2. 05 §6.1 保持累计口径（M86 后 107/106，M87 不变，M88–M90 后依次 108/107、110/109、111/110），不按 spec T8 字面改成单点 107/106。
 3. `m87-copilot-round-exhausted` 只回放模型行为，授权状态机由 Task 4 单测覆盖。
 4. Task 7 的评测设施补充：占位符解析兼容追加观察、失败流水线条目用 `device_connected=false`、M87 场景在评测里关闭总控模型调用；前两条是 spec §5 T7 手写 cassette 口径没有覆盖到的边界。
+
+## 最终验证（主 agent，合并前）
+
+- 全量 pytest：3 failed / 5425 passed / 5 skipped / 2 xfailed（540.82s）；3 条均为基线既有真资源失败，新增 0。
+- `dump_openapi.py --check` 0；前端五步 0（113 文件 / 994 用例、build 含 SW）；frontend/agent/orchestrator/nav 四冒烟末行 `SMOKE OK`；regression 与 capability `EVAL OK`；`check_doc_links.py` BROKEN 0；`git diff --check` 0。
+- 合并：`79a807e` 之后 `dev` 前进到 `79f3539`（M87 merge）；打 tag `v3-m87`；删除分支；未 push。
 
 ## 遗留
 
