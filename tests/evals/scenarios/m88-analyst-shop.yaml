@@ -1,0 +1,75 @@
+{
+  "id": "m88-analyst-shop",
+  "title": "活动商店兑换",
+  "suite": "capability",
+  "agent": "analyst",
+  "source": "M88 spec §5 T7",
+  "tags": [
+    "farming",
+    "shop"
+  ],
+  "entry": {
+    "kind": "ticket",
+    "worker": "analyst",
+    "title": "活动商店兑换",
+    "brief": "这期活动商店先换什么？我想补 10 个异铁块和 15 个聚酸酯组",
+    "scope": "用 optimize_farming 算商店先换什么"
+  },
+  "world": {
+    "farming_optimizer": "m88-farming-shop.json"
+  },
+  "expect": [
+    {
+      "grader": "tool_sequence",
+      "match": "subsequence",
+      "steps": [
+        {
+          "tool": "optimize_farming",
+          "args": {
+            "materials": {
+              "异铁块": 10,
+              "聚酸酯组": 15
+            }
+          }
+        },
+        {
+          "tool": "report",
+          "args": {
+            "status": "ready",
+            "summary": {
+              "re": "(?s)(商店.*异铁块|异铁块.*商店)"
+            }
+          }
+        }
+      ],
+      "forbid": [
+        "submit_pipeline"
+      ]
+    },
+    {
+      "grader": "outcome_state",
+      "runs": {
+        "count": {
+          "gte": 1
+        },
+        "all": [
+          {
+            "agent_name": "analyst",
+            "status": "succeeded",
+            "finish_reason": "report_submitted"
+          }
+        ]
+      },
+      "model_calls": {
+        "lte": 10
+      }
+    }
+  ],
+  "limits": {
+    "timeout_seconds": 120,
+    "max_model_calls": 10
+  },
+  "settings": {
+    "llm.role_orchestrator": "missing-profile"
+  }
+}
