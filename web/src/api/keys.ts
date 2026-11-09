@@ -141,6 +141,11 @@ export const keys = {
         [...root, 'agent', 'tickets', 'detail', ticketId, 'runs'] as const,
     },
     deviceLease: () => [...root, 'agent', 'device-lease'] as const,
+    /** 示教列表（M89 §4.6）：过滤条件进 key；录制中每 2 秒重取。 */
+    demonstrations: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'demonstrations', filters ?? {}] as const,
+    /** 示教列表的整片前缀：开始、停止、转换后各失效一次。 */
+    demonstrationsAll: () => [...root, 'agent', 'demonstrations'] as const,
   },
   /** IM 通道（M85 §4.6）：四平台状态与绑定列表各自一段缓存。 */
   channels: {

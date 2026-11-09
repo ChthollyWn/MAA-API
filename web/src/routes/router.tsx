@@ -40,6 +40,7 @@ const GoalsPage = lazy(() => import('@/features/goals/GoalsPage'))
 const GoalDetailPage = lazy(() => import('@/features/goals/GoalDetailPage'))
 const TriggersPage = lazy(() => import('@/features/triggers/TriggersPage'))
 const WatchdogPage = lazy(() => import('@/features/watchdog/WatchdogPage'))
+const DemonstrationsPage = lazy(() => import('@/features/demonstrations/DemonstrationsPage'))
 const COOKIE_AUTH_KEY = (token: string) => ['auth', 'cookie', token] as const
 
 /** v2 的 /agent 深链（含 ?session_id=）已没有查看器，旧书签发回指挥台。 */
@@ -162,6 +163,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/goals/:goalId', element: page(<GoalDetailPage />) },
       { path: 'more/triggers', element: page(<TriggersPage />) },
       { path: 'more/watchdog', element: page(<WatchdogPage />) },
+      { path: 'more/demonstrations', element: page(<DemonstrationsPage />) },
       { path: 'more/schedules/*', element: <SchedulesRedirect /> },
       { path: 'more/api-console/guide', element: page(<ApiConsolePage />) },
       { path: 'more/api-console', element: page(<ApiConsolePage />) },
