@@ -1406,9 +1406,8 @@ class AgentQuestion(SQLModel, table=True):
     origin_agent: str | None = Field(default=None, max_length=32)
 
     __table_args__ = (
-        # 超时扫描：status='pending' [AND expires_at < ?]
-        Index("ix_agent_question_status_expires_at", "status", "expires_at"),
         # 会话待答列表：session_id=? AND status=? ORDER BY created_at
+        # （``ix_agent_question_status_expires_at`` 随时间失效一起删除，见迁移 0040）
         Index(
             "ix_agent_question_session_status_created_at",
             "session_id",
