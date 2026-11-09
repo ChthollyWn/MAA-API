@@ -1,6 +1,6 @@
 # M86 界面导航图（台账）
 
-- 分支：`nav-graph`；基点：`dev` = `dc4a19a`（含维护性补丁 `evals-ticket-driver` 的合并 `0f16dc4`）；合并：**待主 agent 复核后合并**（`git merge --no-ff nav-graph`，提交信息 `merge: 界面导航图（M86，见 docs/v3/13 §8.180）`）；tag：**`v3-m86` 待主 agent 打**。
+- 分支：`nav-graph`（已合并并删除）；基点：`dev` = `dc4a19a`（含维护性补丁 `evals-ticket-driver` 的合并 `0f16dc4`）；合并：`79a807e`（`merge: 界面导航图（M86，见 docs/v3/13 §8.180）`）；tag：`v3-m86`。
 - spec：[m86-nav-graph](../specs/m86-nav-graph.md)（1245 行，2026-11-09 升格版）
 - 计划：[m86-nav-graph](../plans/m86-nav-graph.md)（857 行）
 - 决策记录：[docs/v3/13 §8.180](../13-决策记录.md)
@@ -143,4 +143,6 @@
 - 两个 M86 能力场景只由 `agent_eval --suite capability` 回放，pytest 不跑 capability 套件；cassette 的 9/10 条口径没有单测钉住（见 13 §8.180 其余裁决 10）。
 - `nav.enabled=false` 时三个工具报 503，REST 端点仍可读写图（照 spec §4.3.2 口径）。
 - 回滚口径（spec §8，**未执行**）：在 `dev` 上用合并提交 hash 执行 `git revert -m 1 <merge>`，再 `.venv/bin/alembic downgrade 0040_question_expiry_historical`；降级会丢掉学到的导航图。
-- **未合并、未打 tag**：合并 `--no-ff` 与 `v3-m86` tag 留给主 agent 复核后执行；本台账与 13 §8.180 已按「待合并」口径写。
+- **整支审查与修复**：整支审查（`dc4a19a..bf7d595`）REQUEST CHANGES（learn=false 成功分支仍写样本；upsert 已存在边未记成功；PUT node 移除样本/rois 重算竞态与 404/503 部分写入；05 device 清单缺两工具）→ 修复 `4bb1364`（navigator 学习门控、created=False 记成功、PUT node 改先删后重算且写库前校验、05 §6 补 navigate_to/where_am_i）→ scoped re-review 通过（114 passed、新用例对旧代码 6/7 失败）→ spec §4.5.4 伪代码补学习门控 `9c2b24b`。
+- **主 agent 独立复核（nav-graph @bf7d595，合并前）**：全量 pytest 3 failed / 5369 passed / 5 skipped / 2 xfailed（3 条=基线既有真资源失败，无新增）；`dump_openapi.py --check` 0；前端五步 0；frontend/agent/orchestrator/nav 四冒烟 SMOKE OK；regression 与 capability `EVAL OK`；`check_doc_links.py` BROKEN 0；`git diff --check` 0；`alembic heads` = 0041_nav_graph。合并后 dev 与分支树一致，未重复跑全量。
+- **合并后**：`git merge --no-ff nav-graph` = `79a807e`；`git tag v3-m86`；删除 `nav-graph` 分支；未 push。
