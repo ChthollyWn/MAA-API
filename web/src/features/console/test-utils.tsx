@@ -549,6 +549,7 @@ export function createConsoleApi(options: ConsoleApiOptions = {}) {
     watchdogAlertQueries: () => requests.filter((item) => item.method === 'GET' && item.path === '/api/agent/watchdog/alerts'),
     watchdogAlertResolves: () => requests.filter((item) => item.method === 'POST' && item.path.endsWith('/resolve') && item.path.startsWith('/api/agent/watchdog/alerts/')),
     memoryReviews: () => requests.filter((item) => item.method === 'POST' && /^\/api\/agent\/memories\/[^/]+\/review$/.test(item.path)),
+    ticketMessagePosts: () => requests.filter((item) => item.method === 'POST' && /^\/api\/agent\/tickets\/[^/]+\/messages$/.test(item.path)),
   }
 }
 

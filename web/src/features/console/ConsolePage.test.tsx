@@ -1190,6 +1190,98 @@ describe('M72 指挥台', () => {
     await waitFor(() => expect(screen.queryByRole('heading', { name: '待你处理' })).not.toBeInTheDocument())
   })
 
+  it('replies to a waiting ticket in place', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-waiting',
+        title: '每日免费单抽没领到',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: '请确认是否批准验证流水线？', ref_id: null },
+      })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('请确认是否批准验证流水线？')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '回复' }))
+    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '批准，明早 04:00 跑' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(1))
+    expect(api.ticketMessagePosts()[0]?.path).toBe('/api/agent/tickets/t-waiting/messages')
+    expect(api.ticketMessagePosts()[0]?.body).toEqual({ content: '批准，明早 04:00 跑' })
+    expect(await screen.findByText('已发给工单')).toBeInTheDocument()
+    expect(screen.queryByLabelText('回复工单')).not.toBeInTheDocument()
+  })
+
+  it('keeps the ticket reply failure visible and retryable', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-waiting',
+        title: '每日免费单抽没领到',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: '请确认是否批准验证流水线？', ref_id: null },
+      })],
+      overrides: [({ method, path }) => (
+        method === 'POST' && path === '/api/agent/tickets/t-waiting/messages'
+          ? json({ error: { code: 'SERVICE_UNAVAILABLE', message: '服务暂时不可用' } }, 500)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: '回复' }))
+    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '批准' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+
+    expect(await screen.findByText('发送消息失败：服务暂时不可用')).toBeInTheDocument()
+    const draft = screen.getByLabelText('回复工单') as HTMLTextAreaElement
+    expect(draft.value).toBe('批准')
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+    await waitFor(() => expect(api.ticketMessagePosts()).toHaveLength(2))
+  })
+
+  it('reports a ticket that has ended when replying', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({
+        id: 't-waiting',
+        title: '通关活动 EX 关',
+        status: 'waiting',
+        human_action: { type: 'question', prompt: 'EX 段开放了吗？', ref_id: null },
+      })],
+      overrides: [({ method, path }) => (
+        method === 'POST' && path === '/api/agent/tickets/t-waiting/messages'
+          ? json({ error: { code: 'TICKET_ENDED', message: '工单已结束，不能再发消息' } }, 409)
+          : undefined
+      )],
+    })
+    renderConsole(api)
+
+    fireEvent.click(await screen.findByRole('button', { name: '回复' }))
+    fireEvent.change(screen.getByLabelText('回复工单'), { target: { value: '已开放' } })
+    fireEvent.click(screen.getByRole('button', { name: '发送回复' }))
+
+    expect(await screen.findByText('发送消息失败：工单已结束，不能再发消息')).toBeInTheDocument()
+  })
+
+  it('hides reply for a ticket without human action', async () => {
+    stubMedia((query) => query === '(min-width: 1024px)')
+    const api = createConsoleApi({
+      messages: [],
+      attentionTickets: [makeTicket({ id: 't-blocked', title: '更新活动资源', status: 'blocked', summary: '卡在缺少工具' })],
+    })
+    renderConsole(api)
+
+    expect(await screen.findByText('卡在缺少工具')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /更新活动资源/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '回复' })).not.toBeInTheDocument()
+  })
+
   it('hides the attention section when nothing is pending', async () => {
     const api = createConsoleApi({ messages: [] })
     renderConsole(api)

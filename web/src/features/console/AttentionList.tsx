@@ -1,4 +1,3 @@
-import { Link } from 'react-router'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -9,8 +8,8 @@ import {
 import { ConfirmationCard } from '@/features/agent/ConfirmationCard'
 import { QuestionCard } from '@/features/agent/QuestionCard'
 import { AttentionMemoryCard } from './AttentionMemoryCard'
+import { AttentionTicketCard } from './AttentionTicketCard'
 import { PlanApprovalCard } from './PlanApprovalCard'
-import { TICKET_STATUS_LABELS } from './api'
 import { originLabel } from './attention'
 import type { AttentionState } from './use-attention'
 
@@ -132,22 +131,7 @@ export function AttentionList({ attention, specTitles }: AttentionListProps) {
         const ticket = item.ticket
         return (
           <li key={`ticket-${item.id}`} data-attention-kind="ticket" data-attention-id={item.id}>
-            <Link
-              to={`/tickets/${ticket.id}`}
-              className="block rounded-xl border bg-card px-3.5 py-3 shadow-card transition-colors hover:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="flex items-start justify-between gap-2">
-                <span className="min-w-0 break-words text-sm font-medium text-foreground">{ticket.title}</span>
-                <Badge variant={ticket.status === 'blocked' ? 'danger' : 'warning'}>
-                  {TICKET_STATUS_LABELS[ticket.status] ?? ticket.status}
-                </Badge>
-              </span>
-              {ticket.humanAction?.prompt ? (
-                <span className="mt-1 block break-words text-footnote text-muted-foreground">{ticket.humanAction.prompt}</span>
-              ) : ticket.summary ? (
-                <span className="mt-1 block break-words text-footnote text-muted-foreground">{ticket.summary}</span>
-              ) : null}
-            </Link>
+            <AttentionTicketCard ticket={ticket} />
           </li>
         )
       })}
