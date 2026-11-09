@@ -59,7 +59,7 @@ M68 的评测设施只实现 `legacy_session` 入口：场景用 v2 会话发消
 - [M86 §0 #16、T11、§3、§10、§11](./m86-nav-graph.md)：`drive_ticket`、`Scenario.human`、`HumanPolicy`、`world.nav` 的依赖口径。
 - [M87 §0 #13、T7、§3、§10、§11](./m87-verifier-copilot-loop.md)：`World.copilots`、`World.copilot_results`、seed 流水线 `agent_session_id` 的完整清单。
 - [10 §6.4–§6.6、§6.9](../10-可观测与评测.md)：场景字段表、录制文件与假世界说明。
-- [13 §8.175–§8.178](../13-决策记录.md)：两次维护性补丁与 M86–M90 升格的实施裁决；§9 待拍板。
+- [13 §8.175–§8.178](../13-决策记录.md)：三次维护性补丁与 M86–M90 升格的实施裁决；§9 待拍板。
 - 场景 schema：`maa_api/agent/evals/scenario.py` 的 `HumanPolicy`（98 行）、`Entry`（74 行）、`SeedPipeline`（148 行）、`WorldSeed`（160 行）、`World`（166 行）、`Scenario`（243 行）、`_TICKET_FIELDS`（67 行）、`Scenario._cross_field_rules`（270 行）。
 - 运行器：`maa_api/agent/evals/runner.py` 的 `CaseRecorder`（223 行）、`DriveFn`（232 行）、`DRIVERS`（356 行）、`_run_with_timeout`（359 行）、`collect_observation`（399 行）、消息 SQL（410–417 行）、缺驱动分支（662–679 行）。
 - 回放：`maa_api/agent/evals/cassette.py` 的 `CassetteTransport.__init__`（951 行）、`_last_reply_ids`（962 行）、`_check_tool_ids`（985 行）、`_message_tool_ids`（824 行）、`check_unused`（1090 行）。
@@ -223,7 +223,12 @@ async def drive_ticket(
 
 
 async def _apply_human_policy(
-    app: Any, policy: HumanPolicy, ticket_id: str, answered: set[str]
+    app: Any,
+    *,
+    ticket_id: str,
+    confirmations: str,
+    questions: Literal["ignore", "skip"] | AnswerSpec,
+    answered: set[str],
 ) -> None:
     """按场景策略批准确认、回答提问；已处理的提问 id 记进 ``answered``。"""
 
@@ -256,9 +261,15 @@ DRIVERS: dict[str, DriveFn] = {
    recorder.turns.append(str(entry.brief))。
 4. deadline = time.monotonic() + max(
        scenario.limits.timeout_seconds - DRIVE_TIMEOUT_MARGIN_SECONDS, 1.0)；
-   last_status = "none"。
+   last_status = "none"；answered: set[str] = set()。
 5. 循环：
-   a. await _apply_human_policy(app, scenario.human, opened.ticket_id, answered)。
+   a. await _apply_human_policy(
+          app,
+          ticket_id=opened.ticket_id,
+          confirmations=scenario.human.confirmations,
+          questions=scenario.human.questions,
+          answered=answered,
+      )。
    b. run = await _latest_root_run(app, opened.worker_session_id)；
       非空时 last_status = str(run.status)。
    c. run 非空且 last_status 在 TERMINAL_RUN_STATUSES 中 → 跳出循环。
@@ -274,28 +285,28 @@ DRIVERS: dict[str, DriveFn] = {
 `_apply_human_policy` 的步骤：
 
 ```text
-1. 若 policy.confirmations 是 "approve" 或 "reject"：
+1. 若 confirmations 是 "approve" 或 "reject"：
    page = await app.state.confirmation_service.list(
        status=ConfirmationStatus.PENDING, size=50)
    对 page["items"] 每一条：
        await app.state.confirmation_service.resolve(
            str(item["id"]),
-           approved=policy.confirmations == "approve",
+           approved=confirmations == "approve",
            resolved_by="eval",
            reason="评测脚本的裁决",
        )
-2. 若 policy.questions 不是 "ignore"：
+2. 若 questions 不是 "ignore"：
    page = await app.state.question_service.list(
        status=QuestionStatus.PENDING, size=50)
    对 page["items"] 每一条：
        origin = item.get("origin") or {}
        如果 origin.get("ticket_id") != ticket_id → 跳过。
        question_id = str(item["question_id"])；已在 answered 中 → 跳过。
-       policy.questions == "skip"：
+       questions == "skip"：
            await app.state.question_service.skip(question_id, answered_by="eval")
        否则是 AnswerSpec：
            await app.state.question_service.answer(
-               question_id, selected=list(policy.questions.answer),
+               question_id, selected=list(questions.answer),
                answered_by="eval")
        answered.add(question_id)。
 ```
@@ -307,6 +318,7 @@ DRIVERS: dict[str, DriveFn] = {
 - 提问必须按 `origin.ticket_id` 过滤：同一次运行里可能还有总控或其它来源的提问，不能替用户回答。
 - 提问作答走真实 `QuestionService.answer`，不额外封装投递：`answer()` 内部已经调用 `_deliver_if_orphaned`，覆盖 §8.177 的「等待者不在且来源运行已结束」。
 - `answered` 只防重复；提问一旦变成 `answered`/`skipped`，列表里就不会再出现。
+- 提问在 Worker 本轮内是阻塞的（`ask_user` 等到答案才返回），所以正常路径不存在「作答后另起一轮」；若来源运行已经结束、`answer()` 触发投递并启动新一轮，驱动不额外等待这一轮，M86/M87 的场景不依赖这种时序。
 - 作答的 label 必须在选项里。`QuestionService.answer` 抛 `QUESTION_SELECTION_INVALID` 时不要吞掉，让 `run_case` 记成 `error`，场景作者据此修 cassette 或 `human.questions`。
 - 超时先由驱动自己触发，早于 `_run_with_timeout`；外层超时仍保留，用来中断卡住的运行。
 - 驱动不等待工单结束后的记忆抽取，也不等待转发给总控的回复轮；它们可能在本例判分之后发生，不能进入 cassette 的必需应答。
@@ -603,7 +615,7 @@ if spec.agent_session_id:
 - 写范围：`maa_api/agent/evals/scenario.py`、`tests/evals/test_ticket_driver.py`（只写解析用例与文件头）
 - 步骤：
   1. 在 `tests/evals/test_ticket_driver.py` 写四条解析用例（§6 的 `scenario_*`）：完整 ticket 场景往返、`copilot_results` 缺 `copilots`、`copilots` 未知键、非法 `copilot_results` 值。
-  2. 按 §4.1 加 `COPILOT_RESULTS`、`CopilotResult`、`_COPILOT_FIELDS`；`HumanPolicy.confirmations` 加 `"pending"`；`SeedPipeline` 加 `agent_session_id`；`World` 加 `copilots`/`copilot_results` 与两个校验器；`Scenario` 加 `human`。
+  2. 按 §4.1 加 `COPILOT_RESULTS`、`CopilotResult`、`_COPILOT_FIELDS`；`HumanPolicy.confirmations` 加 `"pending"`；`SeedPipeline` 加 `agent_session_id`；`World` 加 `copilots`/`copilot_results` 与两个校验器；`Scenario` 加 `human`；把 `COPILOT_RESULTS`、`CopilotResult` 加进 `__all__`。
   3. 运行验证命令，修到全绿。
 - 验证：
 

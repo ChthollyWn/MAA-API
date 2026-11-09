@@ -65,7 +65,7 @@
 - **确认与提问走真实服务**：批准作业授权会写 `copilot_grant` 行；提问答案走 `QuestionService.answer`，包含投递。T3、T4 用例。
 - **子代理会话进观察**：`recorder.session_ids` 含 Worker 与子代理；`collect_observation` 的 `runs` 有子代理运行。T3 用例。
 - **多会话回放不误报**：Worker 带 `delegate` 工具结果的请求，在子代理应答之后仍通过 `_check_tool_ids`；从未发出的 id 仍报 `mismatch`。T2 用例。
-- **旧 11 个场景不变**：`tests/evals` 基线 51 passed 上升，`test_regression_replay.py` 的 5 个 regression 场景与 6 个 capability 场景全部通过。T5 验收。
+- **旧 11 个场景不变**：`tests/evals` 基线 51 passed 上升；`test_regression_replay.py` 的 5 个 regression 场景全绿，脚本的 capability 回放 6/6 通过。T5 验收。
 - **不改生产**：`git diff --stat` 只能出现 `maa_api/agent/evals/` 与 `tests/evals/` 和文档；`maa_api/agent/workers/`、`maa_api/main.py` 为空。T5 验收。
 - **cassette 条数**：ticket 场景是「2 条探查 + 实质调用 + 1 条记忆抽取（仅 ready/failed/dropped）」；`waiting`/`blocked` 不加。T3、T4 用例的 cassette 按这个写。
 
@@ -138,7 +138,7 @@ Expected：非 0；错误含 `Extra inputs are not permitted`（`human`）或 `c
 
 - [ ] **Step 3: 改 `scenario.py`**
 
-按 spec §4.1 加常量、`CopilotResult`、`_COPILOT_FIELDS`；`HumanPolicy.confirmations` 加 `"pending"`；`SeedPipeline` 加 `agent_session_id`；`World` 加 `copilots` / `copilot_results` 与 `field_validator` / `model_validator`；`Scenario` 加 `human: HumanPolicy = Field(default_factory=HumanPolicy)`。`Entry`、`EntryKind`、`_TICKET_FIELDS`、`_cross_field_rules` 不动。
+按 spec §4.1 加常量、`CopilotResult`、`_COPILOT_FIELDS`；`HumanPolicy.confirmations` 加 `"pending"`；`SeedPipeline` 加 `agent_session_id`；`World` 加 `copilots` / `copilot_results` 与 `field_validator` / `model_validator`；`Scenario` 加 `human: HumanPolicy = Field(default_factory=HumanPolicy)`。`Entry`、`EntryKind`、`_TICKET_FIELDS`、`_cross_field_rules` 不动；把 `COPILOT_RESULTS`、`CopilotResult` 加进 `__all__`。
 
 - [ ] **Step 4: 跑解析测试与旧 schema 测试**
 
@@ -254,7 +254,7 @@ Expected：非 0；`KeyError: 'ticket'` 或 `ImportError: cannot import name 'dr
 
 - [ ] **Step 3: 实现 `drive_ticket`**
 
-按 spec §4.2 加常量、两个异常、四个函数与 `DRIVERS` 注册；`_apply_human_policy` 用 `ConfirmationStatus.PENDING`、`QuestionStatus.PENDING`，提问按 `origin["ticket_id"]` 过滤；`answered` 去重。所有 DB 访问走 `app.state.session_factory`。
+按 spec §4.2 加常量、两个异常、四个函数与 `DRIVERS` 注册，并把新名字加进 `__all__`；`_apply_human_policy` 用 `ConfirmationStatus.PENDING`、`QuestionStatus.PENDING`，提问按 `origin["ticket_id"]` 过滤；`answered` 去重。所有 DB 访问走 `app.state.session_factory`。
 
 - [ ] **Step 4: 改消息 SQL 与缺驱动原因**
 
