@@ -263,7 +263,7 @@ class _Harness:
             self.factory, self.registry, policy=PolicyEngine()
         )
         self.questions = (
-            QuestionService(self.factory, timeout_seconds=60) if questions else None
+            QuestionService(self.factory) if questions else None
         )
         self.llm = llm if llm is not None else FakeLLM(responses or [])
         self.settings = Settings(

@@ -340,7 +340,7 @@ def test_new_message_skips_pending_question(tmp_path, monkeypatch) -> None:
                 ),
             )
             questions = QuestionService(
-                factory, broadcast=lambda _kind, _data: None, timeout_seconds=60
+                factory, broadcast=lambda _kind, _data: None
             )
             harness = _Harness(factory, question_service=questions)
             session = await harness.service.ensure_session()

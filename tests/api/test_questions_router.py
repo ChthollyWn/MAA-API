@@ -7,7 +7,6 @@ import contextlib
 import sqlite3
 from collections.abc import Callable, Sequence
 from contextlib import asynccontextmanager
-from datetime import timedelta
 
 import pytest
 from fastapi import FastAPI
@@ -20,7 +19,7 @@ from maa_api.api import deps
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import questions as questions_router
 from maa_api.db import session as db_session
-from maa_api.db.models import AgentSession, utcnow
+from maa_api.db.models import AgentSession
 from maa_api.db.repositories.agent import AgentSessionRepository
 
 QUESTION_FIELDS = {
@@ -33,7 +32,6 @@ QUESTION_FIELDS = {
     "status",
     "selection",
     "created_at",
-    "expires_at",
     "answered_at",
     "answered_by",
     # M71 §4.2：提问 wire 加来源（REST 提问为 null），字段本身始终存在。
@@ -64,7 +62,6 @@ def _setup(
     isolated_db: AsyncEngine,
     make_client,
     *,
-    timeout_seconds: int = 600,
     clock: Callable[[], object] | None = None,
     seeds: Sequence[dict] = (),
 ):
@@ -81,9 +78,7 @@ def _setup(
 
     asyncio.run(create_schema())
     isolated_db.sync_engine.dispose()
-    options = {"timeout_seconds": timeout_seconds}
-    if clock is not None:
-        options["clock"] = clock
+    options = {"clock": clock} if clock is not None else {}
     # 生产装配同款：服务自己拿 session_factory（这里已被 isolated_db 换成临时库）。
     service = QuestionService(db_session.session_factory, **options)
     created: list[dict] = []
@@ -268,38 +263,6 @@ def test_question_answer_rejects_invalid_selections(isolated_db, make_client, tm
     # 被拒绝过三次的卡片仍能正常回答。
     assert client.post(endpoint, json={"selected": ["B 服"]}).status_code == 200
     assert client.post(endpoint, json={"selected": ["官服（Official）"]}).status_code == 409
-
-
-def test_question_answer_and_skip_report_expired_after_the_deadline(
-    isolated_db, make_client, tmp_settings
-):
-    current = [utcnow()]
-    client, _service, created = _setup(
-        isolated_db,
-        make_client,
-        timeout_seconds=60,
-        clock=lambda: current[0],
-        seeds=[_spec(tool_call_id="call-1"), _spec(tool_call_id="call-2")],
-    )
-    wire, skipped_candidate = created
-
-    current[0] = current[0] + timedelta(seconds=61)
-
-    for response in (
-        client.post(
-            f"/api/agent/questions/{wire['question_id']}", json={"selected": ["B 服"]}
-        ),
-        client.post(f"/api/agent/questions/{wire['question_id']}/skip"),
-        client.post(f"/api/agent/questions/{skipped_candidate['question_id']}/skip"),
-    ):
-        assert response.status_code == 409, response.text
-        assert _error(response)["code"] == "QUESTION_EXPIRED"
-
-    # 回答超时把行推到 expired 终态（不是留在 pending）。
-    assert client.get(f"/api/agent/questions/{wire['question_id']}").json()[
-        "status"
-    ] == "expired"
-    assert client.get("/api/agent/questions").json()["total"] == 0
 
 
 # ---------------------------------------------------------------------------

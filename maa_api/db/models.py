@@ -1065,8 +1065,9 @@ class Confirmation(SQLModel, table=True):
         default=None, sa_column=text_column("resolved_reason")
     )
     # 超时时刻，按 risk_level 分级（消耗/破坏类 10 分钟，原子授权 120 秒）
-    expires_at: datetime = Field(
-        sa_column=datetime_column("expires_at", nullable=False)
+    #: 历史列（维护性补丁 `questions-no-expiry`）：新提问不再写入，旧数据保留。
+    expires_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("expires_at", nullable=True)
     )
     created_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("created_at")
@@ -1351,9 +1352,9 @@ class AgentQuestion(SQLModel, table=True):
     都以 label 为准，模型拿到的 ``selected`` 也是 label 列表（规格 §3.3），存索引会
     在选项顺序变化时把历史答案指向别的选项。
 
-    ``expires_at`` 在创建时按 ``agent.question_timeout_seconds`` 算好落库（而不是
-    靠进程内计时器）：超时是**持久化事实**，进程重启后由 :meth:`expire_due` 兜底，
-    刷新页面看到的倒计时也来自这一列。
+    ``expires_at`` 是**历史列**：维护性补丁 `questions-no-expiry` 起提问不再有
+    有效期（配置、扫描与倒计时全部删除），新提问不写这一列；迁移 0040 把它改成
+    可空，旧数据保留用于回放，不再参与任何状态判断。
     """
 
     __tablename__ = "agent_question"
@@ -1379,8 +1380,9 @@ class AgentQuestion(SQLModel, table=True):
     audit_id: int | None = Field(
         default=None, foreign_key="agent_audit.id", ondelete="SET NULL"
     )
-    expires_at: datetime = Field(
-        sa_column=datetime_column("expires_at", nullable=False)
+    #: 历史列（维护性补丁 `questions-no-expiry`）：新提问不再写入，旧数据保留。
+    expires_at: datetime | None = Field(
+        default=None, sa_column=datetime_column("expires_at", nullable=True)
     )
     created_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("created_at")

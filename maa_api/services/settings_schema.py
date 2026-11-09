@@ -206,7 +206,6 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "trace.retention_days": dict(label="运行追踪保留天数", group="Agent", type="integer", minimum=1, maximum=90, hot_action="none"),
     "agent.confirmation_timeout_seconds": dict(label="Agent 确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.grant_confirmation_timeout_seconds": dict(label="屏幕操作授权确认等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
-    "agent.question_timeout_seconds": dict(label="Agent 提问等待时长（秒）", group="Agent", type="integer", minimum=1, hot_action="none"),
     "agent.atomic_grant_minutes": dict(label="屏幕操作授权窗口（分钟）", group="Agent", type="integer", minimum=1, maximum=60, hot_action="none"),
     "agent.auto_diagnose_failures": dict(label="自动诊断流水线与内核故障（两条诊断规则的总开关）", group="Agent", type="boolean", hot_action="none"),
     # M27 账号数据的过期阈值：概要接口与注入段现读设置，改完立即生效。

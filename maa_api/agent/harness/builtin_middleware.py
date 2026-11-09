@@ -1348,9 +1348,8 @@ class ContextLayoutMiddleware(Middleware):
 # --------------------------------------------------------------------------- #
 # 提问、确认与打转检测（T7，规格 §4.2.9）
 # --------------------------------------------------------------------------- #
-#: ``ask_user`` 未获回答时的两种收尾文案（规格 §3.5）。过期文案**不写时长**：
-#: ``agent.question_timeout_seconds`` 可配置，把「10 分钟」写死在正文里会在改配置后
-#: 失真；卡片上的倒计时本来就由 ``expires_at`` 驱动，用户看得到具体剩余时间。
+#: ``ask_user`` 未获回答时的收尾文案（规格 §3.5）。提问没有超时（维护性补丁
+#: questions-no-expiry），``expired`` 只服务历史数据；新路径只有跳过与收尾取消。
 QUESTION_EXPIRED_TEXT = "提问超时了，本轮结束。重新说一遍需求，我会再发一次提问。"
 QUESTION_SKIPPED_TEXT = "你跳过了这次提问，本轮结束。"
 QUESTION_UNANSWERED_REASONS = frozenset({"expired", "skipped"})
@@ -1565,7 +1564,6 @@ class ClarificationMiddleware(Middleware):
             "question": wire["question"],
             "options": wire["options"],
             "multiple": wire["multiple"],
-            "expires_at": wire["expires_at"],
         }
         if wire.get("origin") is not None:
             event["origin"] = wire["origin"]

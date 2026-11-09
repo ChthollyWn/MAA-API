@@ -20,6 +20,7 @@ from sqlmodel import SQLModel
 
 import maa_api.db.models  # noqa: F401
 from maa_api.agent.confirmation import ConfirmationService
+from maa_api.agent.questions import QuestionService
 from maa_api.agent.policy import PolicyEngine
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.db import session as db_session
@@ -140,7 +141,6 @@ async def _runtime(
     context_provider=None,
     database_url: str | None = None,
     prime_capabilities: bool = True,
-    question_timeout_seconds: int | None = None,
     question_service_factory=None,
     **runtime_options,
 ):
@@ -159,12 +159,6 @@ async def _runtime(
     # 路径（ask_user 报 AGENT_DISABLED），不该被夹具悄悄补上。
     if question_service_factory is not None:
         runtime_options["question_service"] = question_service_factory(factory)
-    elif question_timeout_seconds is not None:
-        from maa_api.agent.questions import QuestionService
-
-        runtime_options["question_service"] = QuestionService(
-            factory, timeout_seconds=question_timeout_seconds
-        )
     llm = FakeLLM(responses)
     settings = Settings(
         llm=LLMSettings(base_url="https://llm.test/v1", api_key="effective-secret", model="test-model")
@@ -3402,7 +3396,7 @@ def test_ask_user_emits_question_required_and_continues_the_same_turn_with_the_a
         runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
             [_tool_response(_ask_user_call()), _text_response("好的，按官服继续。")],
             registry=build_registry(),
-            question_timeout_seconds=60,
+            question_service_factory=QuestionService,
         )
         try:
             assert await runtime.acquire_session(session_id) is True
@@ -3417,7 +3411,6 @@ def test_ask_user_emits_question_required_and_continues_the_same_turn_with_the_a
                 "description": "官方客户端",
             }
             assert required["multiple"] is False
-            assert required["expires_at"].endswith("Z")
             # 提问发生在 tool_start 之后：前端要能把它挂到对应的工具条上。
             started = [
                 data
@@ -3469,54 +3462,6 @@ def test_ask_user_emits_question_required_and_continues_the_same_turn_with_the_a
     asyncio.run(scenario())
 
 
-def test_ask_user_timeout_finishes_the_turn_with_question_unanswered():
-    """规格 §3.5：等满 ``expires_at``（用例里 1 秒）没人答 → 先写 tool 消息，再以 question_unanswered 收尾。"""
-
-    async def scenario():
-        from maa_api.agent.runtime import QUESTION_EXPIRED_TEXT
-        from maa_api.agent.tools import build_registry
-
-        # 超时可配置，收尾文案不能把时长写死（否则改配置后文案失真）。
-        assert "10 分钟" not in QUESTION_EXPIRED_TEXT
-        runtime, factory, _confirmations, llm, session_id, engine = await _runtime(
-            [_tool_response(_ask_user_call())],
-            registry=build_registry(),
-            question_timeout_seconds=1,
-        )
-        try:
-            assert await runtime.acquire_session(session_id) is True
-            chunks = [
-                chunk
-                async for chunk in stream_legacy_turn(runtime, session_id, "帮我刷点东西", None)
-            ]
-            events = _turn_events(chunks)
-
-            results = [data for event, data in events if event == "tool_result"]
-            assert results[0]["result"]["status"] == "expired"
-            assert results[0]["result"]["question_id"]
-            texts = [data["text"] for event, data in events if event == "text_delta"]
-            assert QUESTION_EXPIRED_TEXT in texts
-            assert events[-1][0] == "message_end"
-            assert events[-1][1]["finish_reason"] == "question_unanswered"
-            # 模型不再有发言机会：整轮只有一次 LLM 调用。
-            assert len(llm.turns) == 1
-
-            async with factory() as session:
-                messages = await AgentMessageRepository(session).list_by_session(session_id)
-            assert [message.role for message in messages] == [
-                "user",
-                "assistant",
-                "tool",
-                "assistant",
-            ]
-            assert messages[3].finish_reason == "question_unanswered"
-            assert messages[3].content == QUESTION_EXPIRED_TEXT
-        finally:
-            await engine.dispose()
-
-    asyncio.run(scenario())
-
-
 def test_ask_user_skip_finishes_the_turn_with_question_unanswered():
     async def scenario():
         from maa_api.agent.runtime import QUESTION_SKIPPED_TEXT
@@ -3525,7 +3470,7 @@ def test_ask_user_skip_finishes_the_turn_with_question_unanswered():
         runtime, _factory, _confirmations, llm, session_id, engine = await _runtime(
             [_tool_response(_ask_user_call())],
             registry=build_registry(),
-            question_timeout_seconds=60,
+            question_service_factory=QuestionService,
         )
         try:
             assert await runtime.acquire_session(session_id) is True
@@ -3906,7 +3851,7 @@ def test_interrupt_while_a_question_is_pending_cancels_the_card(tmp_path):
         runtime, factory, _confirmations, _llm, session_id, engine = await _runtime(
             [_tool_response(_ask_user_call())],
             registry=build_registry(),
-            question_timeout_seconds=60,
+            question_service_factory=QuestionService,
             database_url=f"sqlite+aiosqlite:///{tmp_path / 'question.sqlite3'}",
         )
         try:

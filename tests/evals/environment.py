@@ -60,7 +60,6 @@ def _build_config(scenario: Scenario, llm: LlmEndpoint, core_path: Path, resourc
         },
         "agent": {
             "auto_diagnose_failures": False,
-            "question_timeout_seconds": 5,
             "confirmation_timeout_seconds": 5,
         },
     }
