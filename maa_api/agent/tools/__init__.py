@@ -19,6 +19,7 @@ def build_registry() -> ToolRegistry:
     from maa_api.agent.tools.catalog import register_tools as register_catalog_tools
     from maa_api.agent.tools.copilot_attempt import register_tools as register_copilot_attempt_tools
     from maa_api.agent.tools.copilot_site import register_tools as register_copilot_site_tools
+    from maa_api.agent.tools.custom_task import register_tools as register_custom_task_tools
     from maa_api.agent.tools.device import register_tools as register_device_tools
     from maa_api.agent.tools.economy import register_tools as register_economy_tools
     from maa_api.agent.tools.estate import register_tools as register_estate_tools
@@ -65,6 +66,8 @@ def build_registry() -> ToolRegistry:
         # M86：界面导航图三个工具接在原语工具之后（规格 §4.2、§4.3.1）。
         register_nav_tools,
         register_resource_tools,
+        # M89：自定义任务起草与校验接在资源工具之后（规格 §4.7、§5 T5）。
+        register_custom_task_tools,
         register_ops_tools,
         register_schedule_tools,
         register_knowledge_tools,

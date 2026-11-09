@@ -95,6 +95,9 @@ EXPECTED_TOOLS = {
     "navigate_to",
     # M88：刷图方案（规格 §4.3.1）。
     "optimize_farming",
+    # M89：自定义任务起草与校验（规格 §4.7、§5 T5）。
+    "draft_custom_task",
+    "validate_custom_task",
 }
 
 #: M74 §5 T3：旧上下文里可以换成占位、需要时重新调用的工具（06 §5.1）。
@@ -117,6 +120,9 @@ EXPECTED_REFETCHABLE = frozenset({
     "where_am_i",
     # M88：同一请求重算结果相同，可以重新取回（规格 §4.3.1）。
     "optimize_farming",
+    # M89：只做编译与校验，不写库；工具不抛校验错误（规格 §4.7）。
+    "draft_custom_task",
+    "validate_custom_task",
 })
 
 #: M80 §5 T4：结果属于不可信输入的工具，整集等于规格附录 A（23 个）。
@@ -144,8 +150,8 @@ def test_untrusted_output_tools_are_pinned() -> None:
     assert len(UNTRUSTED_OUTPUT_TOOLS) == 23
     assert untrusted == UNTRUSTED_OUTPUT_TOOLS
     assert untrusted <= EXPECTED_TOOLS
-    assert len(definitions) == 108
-    assert sum(1 for definition in definitions if definition.model_visible) == 107
+    assert len(definitions) == 110
+    assert sum(1 for definition in definitions if definition.model_visible) == 109
 
 
 def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner():
@@ -166,8 +172,10 @@ def test_registry_exposes_all_delivered_m11_tools_and_no_deferred_copilot_runner
     # → 104 / 103（同样不进 REST 目录，但对总控模型可见）。M86 加三个导航工具
     # → 107 / 106（``remember_screen`` 不进 REST 目录，三个都对模型可见）。
     # M88 加 ``optimize_farming`` → 108 / 107（进 REST 目录，对模型可见）。
-    assert len(actual) == 108
-    assert sum(1 for item in registry.list() if item.model_visible) == 107
+    # M89 加 ``draft_custom_task``、``validate_custom_task`` → 110 / 109
+    # （都进 REST 目录，都对模型可见）。
+    assert len(actual) == 110
+    assert sum(1 for item in registry.list() if item.model_visible) == 109
     assert "knowledge" in {definition.group for definition in registry.list()}
     assert "skills" in {definition.group for definition in registry.list()}
     assert "interaction" in {definition.group for definition in registry.list()}
@@ -729,15 +737,32 @@ def test_extension_fields_keep_v2_defaults() -> None:
     )
 
 
+def test_custom_task_tools_are_safe_and_rest_visible() -> None:
+    """M89 §4.7、§5 T5：组 ``custom_task``、SAFE、只读、可重取、REST 可见。"""
+
+    definitions = {definition.name: definition for definition in build_registry().list()}
+
+    for name in ("draft_custom_task", "validate_custom_task"):
+        definition = definitions[name]
+        assert definition.group == "custom_task"
+        assert definition.risk.value == "SAFE"
+        assert definition.rest_visible is True
+        assert definition.read_only is True
+        assert definition.refetchable is True
+        assert definition.device == "none"
+        assert definition.model_visible is True
+
+
 def test_refetchable_tools_are_pinned() -> None:
-    """M74 §5 T3：可重取工具恰为清单里的 52 个（M86 加 ``where_am_i``、M88 加 ``optimize_farming``），且都是只读。"""
+    """M74 §5 T3：可重取工具恰为清单里的 54 个（M86 加 ``where_am_i``、M88 加
+    ``optimize_farming``、M89 加两个自定义任务工具），且都是只读。"""
 
     definitions = build_registry().list()
     refetchable = {
         definition.name for definition in definitions if definition.refetchable
     }
 
-    assert len(EXPECTED_REFETCHABLE) == 52
+    assert len(EXPECTED_REFETCHABLE) == 54
     assert refetchable == EXPECTED_REFETCHABLE
     assert refetchable <= EXPECTED_TOOLS
     assert all(

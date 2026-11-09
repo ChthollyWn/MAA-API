@@ -68,12 +68,14 @@ SPEC_NAMES = [
 #: M86 §4.7：导航员加三个导航工具与「界面导航图」提示，``navigator`` 升到 2。
 #: M87 §4.7：``daily_ops``、``copilot`` 开启 ``verify_before_ready`` 并升到 4，
 #: ``verifier`` 补核对完成证据的提示，升到 2；``general`` 不动，保持 6。
+#: M88 §4.7：``general`` 加 ``optimize_farming`` 与「刷图方案」段，升到 7。
+#: M89 §4.7：``general`` 加两个自定义任务工具与「新活动」段，升到 8。
 EXPECTED_VERSIONS = {name: 1 for name in SPEC_NAMES} | {
     "analyst": 4,
     "copilot": 4,
     "daily_ops": 4,
     "diagnose": 4,
-    "general": 7,
+    "general": 8,
     "navigator": 2,
     "ops": 3,
     "orchestrator": 7,
