@@ -33,7 +33,7 @@
 | R8 | `AgentSessionRepository.delete` 与 `AgentRuntime.turn_running` 保留 | 生产无调用但历史仓储/运行时测试仍在用；删方法会连带改历史测试 | 保留少量无生产调用方法 |
 | R9 | 前端 `keys.agent.messages` 保留，只删 `sessions`/`session`/`spend` | rewind 的 `MessageActions` 与 `session_rewound` 仍有消费者 | 无 |
 | R10 | `scripts/agent_smoke.py` 会话夹具改成仓储直连创建/回读 | 不能再保留 v2 会话 HTTP 入口 | 冒烟脚本局部重构 |
-| R11 | 文案基线快照（`docs/copy-audit/`）在本补丁**不重设** | 全量重新生成会把 Nov 3 以来的文档积压一次刷出 ~1.8 万行无关差异，并给 `scripts/doc_links_baseline.txt` 引入 4 条新断链（超出「条目只减不增」上限）；本补丁只删代码/文档，没有新增用户可见文案 | `scripts/copy_inventory.py --check` 的既有基线差异留待后续单独刷新，不作为本补丁门禁 |
+| R11 | 文案基线快照（`docs/copy-audit/`）在本补丁**不重设** | 基点 `dev`（`02b5ae7`）上 `scripts/copy_inventory.py --check` 已经是 1（基线停在 2026-11-03，M85 以来的文档积压造成同组回潮；实测 dev 与本分支的回归项同组，非本补丁引入）。全量重新生成会把积压一次刷出 ~1.8 万行无关差异，并给 `scripts/doc_links_baseline.txt` 引入 4 条新断链（超出「条目只减不增」上限） | `copy_inventory.py --check` 的既有基线差异留待后续单独刷新，不作为本补丁门禁 |
 
 ## 验收
 
