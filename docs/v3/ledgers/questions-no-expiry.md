@@ -38,14 +38,17 @@
 | 前端全量 `pnpm test --run` | 112 文件 / 986 用例全绿 |
 | 前端 `pnpm build` | 0（末段 `[sw_harness] SERVICE WORKER OK`） |
 | `scripts/frontend_smoke.py`（先 build） | 0，末行 `SMOKE OK` |
-| 后端全量 `pytest -o addopts= -q` | 待填 |
+| 后端全量 `pytest -o addopts= -q` | **4 failed / 5242 passed / 5 skipped / 2 xfailed**（608.01s）；3 条是既有真资源基线，第 4 条是既有时间敏感用例 `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service`（单跑与重跑通过；同一提交在 `dev` 上 8 次重跑也失败 2 次，非本补丁引入） |
 | `scripts/dump_openapi.py --check` | 0（契约未变） |
 | `cd web && pnpm gen:api:check` | 0 |
 | `scripts/check_doc_links.py` | 末行 `BROKEN 0` |
 | 残留 grep（`question_timeout_seconds`、提问相关 `expires_at`） | 代码零残留；`docs/v3/09`、`14` 各一处是「已删除」说明；`types.ts` 剩下的 `expires_at` 属于确认卡与原子授权 |
 | 合并 | 待填 |
 
-已知失败（非本补丁引入）：`tests/services/test_activity_index.py` 2 条 + `tests/services/test_stage_layout.py` 1 条，依赖 `resource/` 真资源数据，m63 起的既有基线。
+已知失败（非本补丁引入）：
+
+- `tests/services/test_activity_index.py` 2 条 + `tests/services/test_stage_layout.py` 1 条：依赖 `resource/` 真资源数据，m63 起的既有基线。
+- `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service`：既有时间敏感用例（等 `confirm_request` 事件最多 1 秒），全量负载下偶发超时；单独运行通过，且同一用例在 `dev` 基线上 8 次重跑失败 2 次，与提问改动无关。
 
 ## 备注
 
