@@ -163,6 +163,7 @@ class FakeLeaseGate:
 
     def __init__(self) -> None:
         self.allowed_session_ids: frozenset[str] | None = None
+        self.allow_manual = True
         self.error: Exception | None = None
         self.preempt_calls: list[tuple[str, str | None]] = []
 
@@ -174,6 +175,7 @@ class FakeLeaseGate:
         return ClaimGate(
             lease_id="lease-test",
             allowed_session_ids=self.allowed_session_ids,
+            allow_manual=self.allow_manual,
         )
 
     async def preempt(self, reason, *, detail=None):
@@ -2270,6 +2272,81 @@ def test_claim_gate_error_skips_round(runner_env) -> None:
                 stored = await session.get(Pipeline, "pipeline-gate-error")
             assert stored is not None
             assert stored.status == PipelineStatus.PENDING
+        finally:
+            await runner.stop()
+            asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_recording_gate_does_not_claim_manual(runner_env) -> None:
+    """M89 §4.5：录制闸门期间手动提交的流水线留在 ``pending``。"""
+
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-manual-recording",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.PENDING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        gate = FakeLeaseGate()
+        gate.allowed_session_ids = frozenset()
+        gate.allow_manual = False
+        runner.bind_lease_gate(gate)
+        try:
+            assert await runner._claim_next() == (None, [])
+            async with factory() as session:
+                stored = await session.get(Pipeline, "pipeline-manual-recording")
+            assert stored is not None
+            assert stored.status == PipelineStatus.PENDING
+        finally:
+            await runner.stop()
+            asst.stop()
+
+    asyncio.run(scenario())
+
+
+def test_manual_claim_resumes_after_recording_stops(runner_env) -> None:
+    """M89 §4.5：闸门解除后同一条手动流水线恢复出队。"""
+
+    factory, _resource_root, make = runner_env
+
+    async def scenario() -> None:
+        async with factory() as session:
+            session.add(
+                Pipeline(
+                    id="pipeline-manual-resume",
+                    source=PipelineSource.MANUAL,
+                    priority=Priority.MANUAL,
+                    status=PipelineStatus.PENDING,
+                    task_count=0,
+                )
+            )
+            await session.commit()
+
+        runner, asst, _core = make()
+        gate = FakeLeaseGate()
+        gate.allowed_session_ids = frozenset()
+        gate.allow_manual = False
+        runner.bind_lease_gate(gate)
+        try:
+            assert await runner._claim_next() == (None, [])
+
+            gate.allow_manual = True
+            pipeline, tasks = await runner._claim_next()
+            assert pipeline is not None
+            assert pipeline.id == "pipeline-manual-resume"
+            assert pipeline.status == PipelineStatus.RUNNING
+            assert tasks == []
         finally:
             await runner.stop()
             asst.stop()

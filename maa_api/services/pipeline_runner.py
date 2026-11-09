@@ -944,6 +944,9 @@ class PipelineRunner:
                         allowed_session_ids=(
                             gate.allowed_session_ids if gate is not None else None
                         ),
+                        allow_manual=(
+                            gate.allow_manual if gate is not None else True
+                        ),
                     )
                     if pipeline is None:
                         self._claimed_pipeline = None

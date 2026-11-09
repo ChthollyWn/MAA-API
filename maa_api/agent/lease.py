@@ -109,10 +109,15 @@ class LeaseHolder:
 
 @dataclass(frozen=True, slots=True)
 class ClaimGate:
-    """队列领取闸门：租约有效期内只允许这些会话的流水线（及手动提交）出队。"""
+    """队列领取闸门：租约有效期内只允许这些会话的流水线（及手动提交）出队。
+
+    ``allow_manual=False`` 用于 M89 示教录制：录制期间连手动提交的流水线也不领，
+    只允许 ``allowed_session_ids`` 里的会话（录制时集合为空，等于什么都不领）。
+    """
 
     lease_id: str
     allowed_session_ids: frozenset[str]
+    allow_manual: bool = True
 
 
 def holder_for(ctx: RunContext) -> LeaseHolder:
@@ -173,6 +178,8 @@ class DeviceLeaseService:
         self._queue: deque[object] = deque()
         #: 被抢占的持有者记号（一次性）：下一次 acquire 弹出来报 PREEMPTED。
         self._preempted: dict[str, PreemptReason] = {}
+        #: M89 录制闸门：为真时设备归网页示教所有，不写 ``device_lease`` 行。
+        self._recording = False
         self._scan_task: asyncio.Task[None] | None = None
 
     @property
@@ -229,6 +236,10 @@ class DeviceLeaseService:
                 {"reason": reason},
             )
 
+        # M89 录制闸门：示教期间设备归网页所有，直接拒绝，不入队。
+        if self._recording:
+            raise self._recording_busy()
+
         settings = self._settings_provider().lease
         wait = float(settings.wait_seconds if wait_seconds is None else wait_seconds)
         loop = asyncio.get_running_loop()
@@ -262,6 +273,11 @@ class DeviceLeaseService:
                             holder, purpose, explicit, settings.ttl_seconds
                         )
                         if inserted is not None:
+                            # 入锁时还没开录、插入前一刻开始录：撤掉刚插入的行。
+                            if self._recording:
+                                await self._delete_rows([inserted])
+                                failure = self._recording_busy()
+                                break
                             acquired = inserted
                             changes.append(_Change("acquired", None, inserted))
                             break
@@ -394,7 +410,16 @@ class DeviceLeaseService:
         return row
 
     async def claim_gate(self) -> ClaimGate | None:
-        """没有（有效）租约返回 ``None``；有工单按工单会话，没工单按根运行会话。"""
+        """没有（有效）租约返回 ``None``；有工单按工单会话，没工单按根运行会话。
+
+        M89 录制期间优先返回空的录制闸门：连手动提交的流水线也不领取。
+        """
+        if self._recording:
+            return ClaimGate(
+                lease_id="demonstration",
+                allowed_session_ids=frozenset(),
+                allow_manual=False,
+            )
         now = self._clock()
         async with self._session_factory() as session:
             repo = DeviceLeaseRepository(session)
@@ -413,6 +438,18 @@ class DeviceLeaseService:
                 lease_id=row.lease_id,
                 allowed_session_ids=frozenset(allowed),
             )
+
+    # ---------------------------------------------------------------- 录制闸门
+
+    def recording(self) -> bool:
+        """M89：网页示教是否正占用设备（进程内标记，不写 ``device_lease`` 表）。"""
+        return self._recording
+
+    async def set_recording(self, active: bool) -> None:
+        """开关录制闸门；唤醒排队者，让它们尽快按新状态得到 ``DEVICE_LEASE_BUSY``。"""
+        async with self._cond:
+            self._recording = bool(active)
+            self._cond.notify_all()
 
     async def expire_due(self) -> int:
         """删到期的与孤儿隐式租约，返回删除数；每条删行各广播一次原因。"""
@@ -598,6 +635,14 @@ class DeviceLeaseService:
                 "expires_at": _wire_time(row.expires_at) if row is not None else None,
                 "waited_seconds": round(max(wait, 0.0), 3),
             },
+        )
+
+    def _recording_busy(self) -> AppError:
+        """M89：录制期间取租约的 ``DEVICE_LEASE_BUSY``，没有租约行可报。"""
+        return AppError(
+            ErrorCode.DEVICE_LEASE_BUSY,
+            "用户正在网页上示教，设备暂不可用",
+            {"reason": "demonstration_recording"},
         )
 
     # ---------------------------------------------------------------- 回调与广播
