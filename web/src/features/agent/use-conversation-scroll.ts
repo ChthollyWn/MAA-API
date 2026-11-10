@@ -24,7 +24,7 @@ function resolveScroller(
 }
 
 export interface ConversationScrollOptions {
-  /** 对话区自己的滚动容器（桌面）；为 null 时跟随整页滚动（手机）。 */
+  /** 对话区自己的滚动容器（桌面）；为 null 时滚不滚由 `target` 决定。 */
   container: HTMLElement | null
   /** 滚动目标；桌面传 `container` 时，容器就绪前不会回退到整页滚动。 */
   target: ConversationScrollTarget
