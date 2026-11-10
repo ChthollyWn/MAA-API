@@ -92,6 +92,8 @@ class MetricReading:
     ci_low: float | None = None
     ci_high: float | None = None
     delta: float | None = None
+    #: 成本卡片在窗口内只有一种币种时填该币种，其余情况为 ``None``（spec §4.3）。
+    currency: str | None = None
     secondary: tuple[SubMetric, ...] = ()
     updated_at: datetime | None = None
     warnings: tuple[str, ...] = ()
@@ -393,6 +395,20 @@ _ENDED_RUNS_SQL = _window_sql(
     """
 )
 
+#: 回收率的分子：评价在窗口内，且评价对应的运行也在窗口内结束（spec §4.5.2）。
+_RECOVERED_FEEDBACK_SQL = _window_sql(
+    """
+    SELECT COUNT(*) AS total
+      FROM run_feedback f
+      JOIN agent_run r ON r.id = f.run_id
+     WHERE f.created_at >= :start
+       AND f.created_at < :end
+       AND r.status IN ('succeeded', 'failed', 'interrupted', 'cancelled')
+       AND r.finished_at >= :start
+       AND r.finished_at < :end
+    """
+)
+
 _METRICS_BY_ID = {definition.id: definition for definition in METRICS}
 
 
@@ -617,6 +633,9 @@ class InsightsService:
         async with self._session_factory() as session:
             rows = await self._load_feedback(session, start, now)
             ended_runs = await self._count_ended_runs(session, start, now)
+            recovered = await self._count_recovered_feedback(
+                session, start, now
+            )
 
         positive = sum(1 for row in rows if row.rating >= 4)
         negative = sum(1 for row in rows if row.rating <= 2)
@@ -649,7 +668,7 @@ class InsightsService:
             positive=positive,
             negative=negative,
             neutral=neutral,
-            response_rate=rate(len(rows), ended_runs),
+            response_rate=rate(recovered, ended_runs),
             reasons=reasons,
             items=items,
         )
@@ -794,14 +813,19 @@ class InsightsService:
 
         value, grouped = self._cost_value(tickets, runs)
         previous_value, _ = self._cost_value(previous_tickets, previous_runs)
+        # 只有一种币种时把币种带到卡片上，前端据此显示 ¥/$；多币种与币种未知时留空
+        # （NULL 币种由 SQL 归为「未知」，不是一个可展示的币种代码，spec §4.5.2）。
+        currency = next(iter(grouped)) if len(grouped) == 1 else None
+        if currency == "未知":
+            currency = None
         warnings: list[str] = []
         secondary: list[SubMetric] = []
         if len(grouped) > 1:
             warnings.append("成本存在多种币种，未合并")
-            for currency in sorted(grouped):
-                total, count = grouped[currency]
+            for group_currency in sorted(grouped):
+                total, count = grouped[group_currency]
                 secondary.append(
-                    SubMetric(currency, float(total), "micros", count)
+                    SubMetric(group_currency, float(total), "micros", count)
                 )
         elif len(grouped) == 1:
             total, count = next(iter(grouped.values()))
@@ -836,6 +860,7 @@ class InsightsService:
             value=value,
             sample_size=done_count,
             delta=_delta(value, previous_value),
+            currency=currency,
             secondary=tuple(secondary),
             updated_at=max(
                 (ticket.terminal_at for ticket in tickets), default=None
@@ -846,10 +871,11 @@ class InsightsService:
     async def _online_satisfaction(
         self, since: datetime, previous_since: datetime
     ) -> MetricReading:
-        """满意度 = rating>=4 的比例；回收率分母是窗口内结束的运行数。
+        """满意度 = rating>=4 的比例；回收率分子分母都要求运行在窗口内结束。
 
-        评价按 ``run_feedback.created_at`` 进窗口；运行可能结束在窗口外，但回收率
-        的分子分母分别按 spec §4.5.2 的口径取（评价条数 / 窗口内结束的运行数）。
+        评价按 ``run_feedback.created_at`` 进窗口（主值与「评价数」）；回收率的分子
+        只数「评价与运行都在窗口内结束」的条数，运行结束很久后补交的评价不进分子，
+        保证回收率不超过 100%（spec §4.5.2）。
         """
         end = since + (since - previous_since)
         async with self._session_factory() as session:
@@ -858,6 +884,9 @@ class InsightsService:
                 session, previous_since, since
             )
             ended_runs = await self._count_ended_runs(session, since, end)
+            recovered = await self._count_recovered_feedback(
+                session, since, end
+            )
 
         total = len(current)
         positive = sum(1 for row in current if row.rating >= 4)
@@ -869,7 +898,7 @@ class InsightsService:
         secondary = (
             SubMetric("评价数", float(total), "count", total),
             SubMetric(
-                "回收率", rate(total, ended_runs), "ratio", ended_runs
+                "回收率", rate(recovered, ended_runs), "ratio", ended_runs
             ),
             SubMetric("负向率", rate(negative, total), "ratio", total),
         )
@@ -1130,6 +1159,18 @@ class InsightsService:
             (
                 await session.execute(
                     _ENDED_RUNS_SQL, {"start": start, "end": end}
+                )
+            ).scalar_one()
+        )
+
+    async def _count_recovered_feedback(
+        self, session: AsyncSession, start: datetime, end: datetime
+    ) -> int:
+        """回收率分子：评价与对应运行都落在窗口内的条数（spec §4.5.2）。"""
+        return _int(
+            (
+                await session.execute(
+                    _RECOVERED_FEEDBACK_SQL, {"start": start, "end": end}
                 )
             ).scalar_one()
         )

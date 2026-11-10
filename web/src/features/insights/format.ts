@@ -5,8 +5,9 @@ import type { components } from '@/types/api'
 /**
  * 能力效果看板的展示口径（M99 §4.6）。
  *
- * 比率一律按 1 位小数的百分比展示；成本复用运行页的微单位格式，卡片上没有币种
- * 信息，所以主值只写金额、分币种明细由服务端的 secondary 给出。
+ * 比率一律按 1 位小数的百分比展示；成本复用运行页的微单位格式。成本卡在窗口内
+ * 只有一种币种时服务端给 `currency`，主值与成本明细按该币种显示 ¥/$；多币种时
+ * `currency` 为空，主值「暂无数据」、分币种明细由服务端 secondary 给出。
  */
 
 export type MetricId = components['schemas']['MetricId']
@@ -72,13 +73,17 @@ export function unitLabel(unit: string): string {
 }
 
 /** 指标卡主值：无数据写「暂无数据」，不拿 0 冒充。 */
-export function formatMetricValue(value: number | null | undefined, unit: string): string {
+export function formatMetricValue(
+  value: number | null | undefined,
+  unit: string,
+  currency?: string | null,
+): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '暂无数据'
   switch (unit) {
     case 'ratio':
       return formatPercent(value)
     case 'micros':
-      return formatMicros(value, null)
+      return formatMicros(value, currency)
     case 'turns':
       return `${formatCount(value)} 轮`
     case 'count':
@@ -90,26 +95,39 @@ export function formatMetricValue(value: number | null | undefined, unit: string
   }
 }
 
-/** secondary 的一行值。 */
-export function formatSubMetricValue(value: number | null | undefined, unit: string): string {
+/** secondary 的一行值；成本卡的单币种明细同样带币种符号。 */
+export function formatSubMetricValue(
+  value: number | null | undefined,
+  unit: string,
+  currency?: string | null,
+): string {
   if (value === null || value === undefined || !Number.isFinite(value)) return '暂无'
-  return formatMetricValue(value, unit)
+  return formatMetricValue(value, unit, currency)
 }
 
 /** 与上一同长窗口的差；比率用百分点（pp），其余沿用单位的格式。 */
-export function formatDelta(delta: number, unit: string): string {
+export function formatDelta(
+  delta: number,
+  unit: string,
+  currency?: string | null,
+): string {
   const sign = delta > 0 ? '+' : delta < 0 ? '−' : '±'
   const absolute = Math.abs(delta)
   if (unit === 'ratio') return `${sign}${(absolute * 100).toFixed(1)}pp`
-  if (unit === 'micros') return `${sign}${formatMicros(absolute, null)}`
+  if (unit === 'micros') return `${sign}${formatMicros(absolute, currency)}`
   if (unit === 'turns') return `${sign}${formatCount(absolute)} 轮`
   if (unit === 'percent') return `${sign}${formatCount(absolute)}%`
   return `${sign}${formatCount(absolute)}`
 }
 
 /** Wilson 95% 区间；只在上下界都有值时显示。 */
-export function formatCi(low: number, high: number, unit: string): string {
-  if (unit === 'micros') return `95% CI ${formatMicros(low, null)}–${formatMicros(high, null)}`
+export function formatCi(
+  low: number,
+  high: number,
+  unit: string,
+  currency?: string | null,
+): string {
+  if (unit === 'micros') return `95% CI ${formatMicros(low, currency)}–${formatMicros(high, currency)}`
   if (unit === 'turns') return `95% CI ${formatCount(low)}–${formatCount(high)} 轮`
   const range = unit === 'ratio'
     ? `${formatPercent(low)}–${formatPercent(high)}`

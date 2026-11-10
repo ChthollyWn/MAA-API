@@ -84,6 +84,7 @@ def test_empty_window_returns_none(service) -> None:
             assert card.reading.ci_low is None, card.definition.id
             assert card.reading.ci_high is None, card.definition.id
             assert card.reading.delta is None, card.definition.id
+            assert card.reading.currency is None, card.definition.id
 
         warnings = list(data.warnings)
         assert (
@@ -278,6 +279,9 @@ def test_cost_average_and_secondary(seeded) -> None:
         assert cost.reading.sample_size == 3
         assert cost.reading.delta == pytest.approx(2000 / 3 - 500)
         assert cost.reading.updated_at == D1
+        # 窗口内只有 USD 一种币种，卡片带上币种给前端显示 $（spec §4.3）。
+        assert cost.reading.currency == "USD"
+        assert _card(data, MetricId.USER_SATISFACTION).reading.currency is None
 
         secondary = _secondary(cost)
         assert secondary["窗口总成本"].value == pytest.approx(2000)
@@ -314,6 +318,7 @@ def test_cost_currency_mismatch_nulls_value(
 
         assert cost.reading.value is None
         assert cost.reading.sample_size == 3
+        assert cost.reading.currency is None
         assert "成本存在多种币种，未合并" in data.warnings
         secondary = _secondary(cost)
         assert secondary["USD"].value == pytest.approx(2000)
@@ -349,6 +354,7 @@ def test_cost_unknown_currency_is_separate_group(
         cost = _card(data, MetricId.COST)
 
         assert cost.reading.value is None
+        assert cost.reading.currency is None
         assert "成本存在多种币种，未合并" in data.warnings
         secondary = _secondary(cost)
         assert secondary["未知"].value == pytest.approx(50)
@@ -379,6 +385,69 @@ def test_satisfaction_positive_rate_and_response_rate(seeded) -> None:
         assert secondary["回收率"].value == pytest.approx(4 / 5)
         assert secondary["回收率"].sample_size == 5
         assert secondary["负向率"].value == pytest.approx(1 / 4)
+
+    asyncio.run(scenario())
+
+
+def test_satisfaction_response_rate_requires_run_ended_in_window(
+    service, retention_session_factory
+) -> None:
+    """回收率分子只数「评价与运行都在窗口内结束」的条数，不超过 100%。
+
+    运行在窗口前结束、窗口内补交评价时，评价计入满意度主值与「评价数」，但运行
+    不占回收率的分母，评价也不进分子；否则分子会超过分母（spec §4.5.2）。
+    """
+
+    async def scenario():
+        async with retention_session_factory() as db:
+            db.add_all(
+                [
+                    # 窗口前结束的运行：不在回收率分母里。
+                    _run(
+                        "run-before-window",
+                        ticket_id=None,
+                        session_id=None,
+                        status=AgentRunStatus.SUCCEEDED,
+                        finished_at=OLD,
+                    ),
+                    # 窗口内结束的运行：在分母里，其评价也进分子。
+                    _run(
+                        "run-in-window",
+                        ticket_id=None,
+                        session_id=None,
+                        status=AgentRunStatus.FAILED,
+                        finished_at=D1,
+                    ),
+                ]
+            )
+            await db.flush()
+            db.add_all(
+                [
+                    # 窗口内补交、但运行早已结束的评价：进主值，不进回收率分子。
+                    _feedback(1, "run-before-window", 5, [], D2),
+                    # 运行与评价都在窗口内：计入分子。
+                    _feedback(2, "run-in-window", 2, [], D3),
+                ]
+            )
+            await db.commit()
+
+        data = await service.overview(WINDOW)
+        satisfaction = _card(data, MetricId.USER_SATISFACTION)
+
+        # 主值与评价数仍看窗口内的全部评价。
+        assert satisfaction.reading.value == pytest.approx(0.5)
+        assert satisfaction.reading.sample_size == 2
+        secondary = _secondary(satisfaction)
+        assert secondary["评价数"].value == 2
+        # 分母 1（run-in-window），分子 1；修复前分子是 2，会得到 200%。
+        assert secondary["回收率"].sample_size == 1
+        assert secondary["回收率"].value == pytest.approx(1.0)
+        assert secondary["回收率"].value <= 1.0
+
+        # 反馈摘要的 response_rate 与满意度回收率同一口径。
+        digest = await service.feedback_digest(WINDOW, limit=10)
+        assert digest.total == 2
+        assert digest.response_rate == pytest.approx(1.0)
 
     asyncio.run(scenario())
 
@@ -566,7 +635,7 @@ def _secondary(card) -> dict:
 def _run(
     run_id: str,
     *,
-    ticket_id: str,
+    ticket_id: str | None,
     session_id: str | None,
     status: AgentRunStatus,
     finished_at: datetime | None,

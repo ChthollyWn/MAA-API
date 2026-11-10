@@ -24,7 +24,7 @@ import maa_api.db.models  # noqa: F401  # 注册全部表，create_all 才能建
 from maa_api.api import deps
 from maa_api.api.errors import register_exception_handlers
 from maa_api.api.routers import insights as insights_router
-from maa_api.db.models import AgentRun, RunFeedback, utcnow
+from maa_api.db.models import AgentRun, RunFeedback, Ticket, utcnow
 from maa_api.domain.enums import AgentRunKind, AgentRunStatus
 from maa_api.services.insights import InsightsService
 
@@ -72,6 +72,9 @@ ENDPOINTS = [
 
 #: 反馈摘要用例里唯一运行与评价的 id（36 位 UUID 形状）。
 FEEDBACK_RUN = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+#: 单币种成本用例的工单与运行 id。
+COST_TICKET = "ticket-cost"
+COST_RUN = "run-cost"
 
 
 def _build_app(
@@ -123,6 +126,41 @@ async def _seed_feedback(factory: async_sessionmaker[AsyncSession]) -> None:
                 rating=5,
                 reasons=["slow"],
                 comment="再快一点",
+            )
+        )
+        await session.commit()
+
+
+async def _seed_cost(factory: async_sessionmaker[AsyncSession]) -> None:
+    """一张窗口内 done 的工单 + 一条 CNY 运行，成本卡应带币种。"""
+    finished_at = utcnow()
+    async with factory() as session:
+        session.add(
+            Ticket(
+                id=COST_TICKET,
+                title="成本工单",
+                kind="daily_ops",
+                status="done",
+                origin="user",
+                created_at=finished_at,
+                updated_at=finished_at,
+                ended_at=finished_at,
+            )
+        )
+        await session.flush()
+        session.add(
+            AgentRun(
+                id=COST_RUN,
+                root_run_id=COST_RUN,
+                ticket_id=COST_TICKET,
+                agent_name="daily_ops",
+                kind=AgentRunKind.WORKER_TURN,
+                status=AgentRunStatus.SUCCEEDED,
+                boot_id="test-boot",
+                started_at=finished_at,
+                finished_at=finished_at,
+                cost_micros=500_000,
+                currency="CNY",
             )
         )
         await session.commit()
@@ -201,11 +239,36 @@ def test_overview_empty_data_returns_seven_null_cards(
     assert all(item["ci_high"] is None for item in body["items"])
     assert all(item["delta"] is None for item in body["items"])
     assert all(item["updated_at"] is None for item in body["items"])
+    assert all(item["currency"] is None for item in body["items"])
     assert all(isinstance(item["secondary"], list) for item in body["items"])
     # 证据等级仍取目录里的等级，不是空值。
     assert _card(body, "accuracy")["evidence"] == "measured"
     assert _card(body, "task_completion")["evidence"] == "self_reported"
     assert any("record/live" in warning for warning in body["warnings"])
+
+
+def test_overview_cost_card_carries_single_currency(
+    isolated_db, make_client, tmp_settings
+):
+    """单币种种子数据下成本卡的 ``currency`` 是该币种，其余卡片为空。"""
+    client = _build_app(isolated_db, make_client, seed=_seed_cost)
+
+    response = client.get("/api/agent/insights/overview")
+    assert response.status_code == 200, response.text
+    body = response.json()
+    cost = _card(body, "cost")
+
+    assert cost["value"] == pytest.approx(500_000)
+    assert cost["sample_size"] == 1
+    assert cost["currency"] == "CNY"
+    secondary = {item["label"]: item for item in cost["secondary"]}
+    assert secondary["窗口总成本"]["value"] == pytest.approx(500_000)
+    # 币种只属于成本卡；其他指标不该带币种。
+    assert all(
+        item["currency"] is None
+        for item in body["items"]
+        if item["id"] != "cost"
+    )
 
 
 @pytest.mark.parametrize("window_days", [0, 366, "abc"])

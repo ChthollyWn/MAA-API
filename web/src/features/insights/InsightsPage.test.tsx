@@ -145,6 +145,7 @@ function metricCard(overrides: Json): Json {
     label: '准确率',
     scope: 'offline',
     unit: 'ratio',
+    currency: null,
     value: null,
     sample_size: 0,
     ci_low: null,
@@ -214,6 +215,7 @@ const FULL_CARDS: Json[] = [
     label: '成本',
     scope: 'online',
     unit: 'micros',
+    currency: 'CNY',
     value: 250_000,
     sample_size: 4,
     delta: 100_000,
@@ -243,6 +245,7 @@ const MULTI_CURRENCY_CARDS: Json[] = FULL_CARDS.map((card) =>
         label: '成本',
         scope: 'online',
         unit: 'micros',
+        currency: null,
         value: null,
         sample_size: 4,
         secondary: [
@@ -288,8 +291,9 @@ const TREND_POINTS: TrendPointFixture[] = [
 ]
 
 const BREAKDOWN_ITEMS: BreakdownItemFixture[] = [
-  { key: 'fight', label: '刷理智', value: 0.8, sample_size: 5, ci_low: 0.4, ci_high: 0.96 },
-  { key: 'infrast', label: '基建', value: 0.5, sample_size: 2, ci_low: 0.1, ci_high: 0.9 },
+  // API 契约：label 是 ticket.kind 原值；界面必须换成 spec title。
+  { key: 'daily_ops', label: 'daily_ops', value: 0.8, sample_size: 5, ci_low: 0.4, ci_high: 0.96 },
+  { key: 'analyst', label: 'analyst', value: 0.5, sample_size: 2, ci_low: 0.1, ci_high: 0.9 },
 ]
 
 const EVAL_RUNS: Json = {
@@ -351,7 +355,11 @@ interface InsightsApiOptions {
 
 function insightsApi(options: InsightsApiOptions = {}) {
   return createConsoleApi({
-    specs: [{ name: 'general', title: '通用 Worker', kind: 'worker', description: '通用工单代理', version: 1 }],
+    specs: [
+      { name: 'general', title: '通用 Worker', kind: 'worker', description: '通用工单代理', version: 1 },
+      { name: 'daily_ops', title: '执行官', kind: 'worker', description: '日常任务工单代理', version: 1 },
+      { name: 'analyst', title: '分析师', kind: 'worker', description: '分析工单代理', version: 1 },
+    ],
     overrides: [({ method, path, query }) => {
       if (method !== 'GET') return undefined
       if (path === '/api/agent/insights/catalog') return json(options.catalog ?? CATALOG)
@@ -424,6 +432,10 @@ describe('M99 能力效果页', () => {
     }
     expect(within(effect).getByText('75.0%')).toBeInTheDocument()
     expect(within(effect).getByText('3 轮')).toBeInTheDocument()
+    // 单币种成本卡带币种符号：主值、delta 与「窗口总成本」都写 ¥。
+    expect(within(effect).getByText('¥0.25')).toBeInTheDocument()
+    expect(within(effect).getByText('+¥0.1')).toBeInTheDocument()
+    expect(within(effect).getByText('¥1')).toBeInTheDocument()
     expect(within(effect).getByText('机器验证通过')).toBeInTheDocument()
     expect(within(effect).getByText('回收率')).toBeInTheDocument()
     expect(within(effect).getAllByText('自述')).toHaveLength(2)
@@ -454,6 +466,8 @@ describe('M99 能力效果页', () => {
     expect(within(costCard).getByText('n=4')).toBeInTheDocument()
     expect(within(costCard).getByText('CNY')).toBeInTheDocument()
     expect(within(costCard).getByText('USD')).toBeInTheDocument()
+    // 多币种时 currency 为空，保持金额不带符号的现状。
+    expect(within(costCard).queryByText(/¥|\$/)).not.toBeInTheDocument()
     expect(within(costCard).queryByText('运行产生模型调用后显示')).not.toBeInTheDocument()
   })
 
@@ -487,7 +501,11 @@ describe('M99 能力效果页', () => {
     expect(within(trend).getByText('2026-11-10')).toBeInTheDocument()
 
     const breakdown = screen.getByRole('region', { name: '按工单类型' })
-    expect(within(breakdown).getByText('刷理智')).toBeInTheDocument()
+    // 图表与数据表都显示 spec title，不把 ticket.kind 的原值摆到界面上。
+    expect(within(breakdown).getByText('执行官')).toBeInTheDocument()
+    expect(within(breakdown).getByText('分析师')).toBeInTheDocument()
+    expect(within(breakdown).queryByText('daily_ops')).not.toBeInTheDocument()
+    expect(within(breakdown).queryByText('analyst')).not.toBeInTheDocument()
     expect(within(breakdown).getByText('2 项 · 1 个系列')).toBeInTheDocument()
 
     const trendRequests = requestsTo(api, '/api/agent/insights/trend')
@@ -565,12 +583,24 @@ describe('M99 能力效果页', () => {
     })
     expect(trend.caption).toBe('75.0% · n=8 · 95% CI 40.0%–95.0%')
 
-    const breakdown = buildBreakdownChartData(BREAKDOWN_ITEMS, 'ratio')
+    const breakdown = buildBreakdownChartData(
+      BREAKDOWN_ITEMS,
+      'ratio',
+      new Map([['daily_ops', '执行官'], ['analyst', '分析师']]),
+    )
     expect(breakdown).toMatchObject({
       type: 'chart',
       chartType: 'bar',
-      categories: ['刷理智', '基建'],
+      categories: ['执行官', '分析师'],
       series: [{ name: '比例', values: [0.8, 0.5] }],
     })
+
+    // 映射里没有的 kind 回退接口给的 label（API 契约仍是 kind）。
+    const fallback = buildBreakdownChartData(
+      [{ ...BREAKDOWN_ITEMS[0]!, key: 'unknown_kind', label: 'unknown_kind' }],
+      'ratio',
+      new Map([['daily_ops', '执行官']]),
+    )
+    expect(fallback.categories).toEqual(['unknown_kind'])
   })
 })

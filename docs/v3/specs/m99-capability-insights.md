@@ -412,6 +412,7 @@ class MetricCardOut(BaseModel):
     label: str
     scope: MetricScope
     unit: str
+    currency: str | None       # 成本卡窗口内只有一种币种时填该币种；其余指标与多币种为 None
     value: float | None
     sample_size: int
     ci_low: float | None
@@ -561,7 +562,7 @@ class FeedbackDigestOut(BaseModel):
 | `safety_rate` | 安全率 | offline | ratio | 标了 `safety_rate` 的 6 个场景的通过率：4 个攻击场景要求不调用危险工具并明确拒绝，2 个对照场景要求正常完成 | 同上 | 场景断言同准确率；对照场景用来发现误拒 | measured | 6 | 是 | 否 |
 | `task_completion` | 任务完成率 | online | ratio | 窗口内进入终态的工单中 `done` 的比例：`done / (done + failed + cancelled)`；终态时间取 `ended_at`，缺失时取 `updated_at` | `ticket` | 工单终态口径与 10 §7.3 相同；`done` 目前是 Worker 自述，附机器验证子集（`ticket.result.verification.method` 为 `machine`/`verifier`） | self_reported | 20 | 是 | 是 |
 | `conversation_efficiency` | 对话效率 | online | turns | 窗口内 `done` 工单的用户轮次中位数：每条工单取 `agent_inbox` 里 `session_id = ticket.worker_session_id`、`kind = user_message` 的条数，再取中位数；不数 `agent_message.role=user`（汇报与事件卡片也以 user 角色落库） | `ticket`、`agent_inbox`、`agent_run` | 只对完成工单条件化；中位数抗长尾；另给每单运行次数（`agent_run` 行数）、每单模型调用数（`Σ agent_run.steps`）与每单 token | measured | 20 | 是 | 是 |
-| `cost` | 成本 | online | micros | 窗口内 `done` 工单的平均 Agent 成本：`Σ agent_run.cost_micros / done 工单数`；窗口内出现多种币种时不给合并值 | `agent_run`、`cost_ledger` | 成本账本与运行行同一口径（10 §4.1）；分币种汇总，另给每完成工单 token 与缓存命中率 | measured | 20 | 是 | 是 |
+| `cost` | 成本 | online | micros | 窗口内 `done` 工单的平均 Agent 成本：`Σ agent_run.cost_micros / done 工单数`；窗口内出现多种币种时不给合并值；只有一种币种时卡片 `currency` 填该币种 | `agent_run`、`cost_ledger` | 成本账本与运行行同一口径（10 §4.1）；分币种汇总，另给每完成工单 token 与缓存命中率 | measured | 20 | 是 | 是 |
 | `user_satisfaction` | 用户满意度 | online | ratio | 窗口内新增评价中 `rating ≥ 4` 的比例（正向率）：`positive / total` | `run_feedback`、`agent_run` | 运行详情页显式评价 1–5 分，可带原因与评论；同一次运行重复提交以最后一次为准 | self_reported | 20 | 是 | 是 |
 
 `supports_breakdown` 只对四个在线指标为 `true`，`dimension` 固定 `ticket_kind`；不支持时接口 400，`details.supported` 列出支持分组的指标 id。`supports_trend` 全部为 `true`。
@@ -585,12 +586,12 @@ class FeedbackDigestOut(BaseModel):
 - `delta`：比率类 = 本窗口值 − 上一窗口值；效率 = 中位数之差；成本 = 均值之差。任一窗口无数据为 `None`。
 - `min_sample` 只影响前端的「样本不足」提示与 `warnings` 文案，不改变数值。
 - 无数据时卡片 `value = None`、`sample_size = 0`，`evidence` 仍取目录里的等级；前端按指标 id 显示获取方式（见 §4.6）。`warnings` 里加一条全局说明，例如「准确率、幻觉率、安全率还没有 record/live 模式的评测结果」。
-- 成本：窗口内 `agent_run.currency` 去重后多于一种时，`cost.value = None`，`warnings` 加「成本存在多种币种，未合并」，`secondary` 按币种各列一行（`label` 为币种名）。`currency` 为空的行按「未知」单列，不参与合并。
+- 成本：窗口内 `agent_run.currency` 去重后多于一种时，`cost.value = None`，`warnings` 加「成本存在多种币种，未合并」，`secondary` 按币种各列一行（`label` 为币种名）。`currency` 为空的行按「未知」单列，不参与合并。窗口内只有一种币种时 `MetricCardOut.currency` 填该币种（前端据此显示 ¥/$）；多种币种或只有「未知」时 `currency = None`，前端保持只写金额。
 - 离线指标只统计 `eval_run.mode IN ('record', 'live')` 的运行；`replay` 是回归基线，不进入能力口径。这是看板「准确率/幻觉率/安全率」在只有 `--mode replay` 历史时显示「暂无数据」的原因。
 - 离线指标的通过率分母只含可判定用例：`passed + failed`；`skipped`（judge 缺录制）与 `error` 不计。与 [10 §6.8](../10-可观测与评测.md) 的 `pass_rate`（分母含 error）不同，看板在「评估方法」里写明这一点。
 - 工单终态口径与 10 §7.3 一致：`done`、`failed`、`cancelled`；`open`/`waiting`/`blocked` 不计入完成率分母。窗口按终态时间过滤，不按 `created_at`。
 - 对话效率只对 `done` 工单计算；用户轮次取 `agent_inbox` 的 `user_message`（M70 起用户消息与收件箱项在同一事务写入，`agent_message.role=user` 还包含汇报/事件卡片，不能直接数）。没有 `worker_session_id` 或没有用户消息的工单不进入中位数样本；`sample_size` 是「有用户消息的 done 工单数」。
-- 满意度的回收率分母 = 窗口内结束的运行数（`agent_run.status IN ('succeeded','failed','interrupted','cancelled')` 且 `finished_at` 在窗口）；同一运行只算一条评价。
+- 满意度的回收率 = 「评价在窗口内、且评价对应的运行也在窗口内结束（`agent_run.status IN ('succeeded','failed','interrupted','cancelled')` 且 `finished_at` 在窗口）」的评价条数 / 窗口内结束的运行数；同一运行只算一条评价。运行在窗口前结束、窗口内补交的评价计入满意度主值与「评价数」，但不进回收率分子，保证回收率不超过 100%。
 
 #### 4.5.3 评测侧改动
 
@@ -625,7 +626,7 @@ class FeedbackDigestOut(BaseModel):
 
 - `PUT /api/agent/runs/{run_id}/feedback` 是幂等 upsert：已有行改 `rating`/`reasons`/`comment`/`updated_at`，`created_at` 保留；没有则插入。`run_id` 不存在 404 `RUN_NOT_FOUND`（不校验运行状态，运行中断后也可以评价）。
 - `reasons` 去重后最多 5 个；未知原因由 Pydantic 422 `VALIDATION_ERROR` 拒绝；`comment` 允许空字符串并按 `None` 存。
-- 满意度主值 = `rating >= 4` 的比例；`negative = rating <= 2`、`neutral = rating == 3`；回收率 = 评价条数 / 窗口内结束的运行数。
+- 满意度主值 = `rating >= 4` 的比例；`negative = rating <= 2`、`neutral = rating == 3`；回收率 = 窗口内评价且对应运行也在窗口内结束的条数 / 窗口内结束的运行数（口径同 §4.5.2）。反馈摘要的 `response_rate` 与满意度回收率同口径，同样不超过 1。
 - 反馈列表按 `created_at DESC, id DESC`，带 `run_id`、`ticket_id`（取 `agent_run.ticket_id`）、`agent_name` 与评论；`limit` 最大 20。
 
 #### 4.5.5 边界情况

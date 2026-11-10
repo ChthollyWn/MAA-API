@@ -157,7 +157,7 @@ export function InsightsPage() {
     : null
   const breakdownItems = breakdown.data?.items ?? []
   const breakdownChart = breakdown.data && definition && breakdownItems.length > 0
-    ? buildBreakdownChartData(breakdownItems, definition.unit)
+    ? buildBreakdownChartData(breakdownItems, definition.unit, titles)
     : null
 
   const refresh = () => {

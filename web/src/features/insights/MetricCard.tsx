@@ -27,7 +27,7 @@ export interface MetricCardProps {
 export function MetricCard({ card, definition }: MetricCardProps) {
   const hasValue = card.value !== null
   const ci = card.ci_low !== null && card.ci_high !== null
-    ? formatCi(card.ci_low, card.ci_high, card.unit)
+    ? formatCi(card.ci_low, card.ci_high, card.unit, card.currency)
     : null
   const belowSample = hasValue && definition !== undefined && card.sample_size < definition.min_sample
 
@@ -42,7 +42,7 @@ export function MetricCard({ card, definition }: MetricCardProps) {
       </div>
 
       <p className={cn('text-title font-semibold tabular-nums', !hasValue && 'text-muted-foreground')}>
-        {formatMetricValue(card.value, card.unit)}
+        {formatMetricValue(card.value, card.unit, card.currency)}
       </p>
 
       <p className="text-footnote tabular-nums text-muted-foreground">
@@ -52,7 +52,7 @@ export function MetricCard({ card, definition }: MetricCardProps) {
 
       {card.delta !== null ? (
         <p className="text-footnote text-muted-foreground">
-          较上一窗口 <span className="font-medium tabular-nums text-foreground">{formatDelta(card.delta, card.unit)}</span>
+          较上一窗口 <span className="font-medium tabular-nums text-foreground">{formatDelta(card.delta, card.unit, card.currency)}</span>
         </p>
       ) : null}
 
@@ -65,7 +65,7 @@ export function MetricCard({ card, definition }: MetricCardProps) {
           {card.secondary.map((item, index) => (
             <div key={`${item.label}-${index}`} className="flex items-baseline justify-between gap-2">
               <dt className="min-w-0 truncate text-muted-foreground">{item.label}</dt>
-              <dd className="shrink-0 tabular-nums">{formatSubMetricValue(item.value, item.unit)}</dd>
+              <dd className="shrink-0 tabular-nums">{formatSubMetricValue(item.value, item.unit, card.currency)}</dd>
             </div>
           ))}
         </dl>

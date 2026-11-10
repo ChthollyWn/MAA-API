@@ -1,6 +1,6 @@
 # M99 能力效果看板（台账）
 
-- 分支：`capability-insights`；基点：`dev` = `fc3c513`；合并：`<由控制器填写>`；tag：`v3-m99`
+- 分支：`capability-insights`；基点：`dev` = `fc3c513`；合并提交：`<由控制器填写>`；tag：`v3-m99`（打 tag 由控制器执行）
 - spec：[m99-capability-insights](../specs/m99-capability-insights.md)
 - 计划：[m99-capability-insights](../plans/m99-capability-insights.md)
 
@@ -11,14 +11,15 @@
 - 评测发布：`Scenario.metrics`、`CaseResult.title/metrics/tags`、`publish.py`、`scripts/agent_eval.py --publish`（幂等，失败只警告）。14 个既有 capability 场景加 `accuracy`，新增 2 个幻觉与 6 个安全场景（含 2 个对照），场景 23 → 31、capability 18 → 26。
 - 前端：`/more/insights` 能力效果页（7 张指标卡、窗口切换、趋势、按工单类型分组、离线评测、最近评价、评估方法）、`/more/evals/:runId` 评测详情页、运行详情页「这次运行怎么样」评价入口；8 个 query key、2 条路由与 agent 组导航项。
 - 契约文档：01/02/03/04/10/11/12/13/15、README 与 specs/README 同步，14 总校（174 个错误码、200 条端点、agent 小节 97 条），15 重新生成；`config.template.yaml` 无变化。
+- 整支复审 fix wave（提交 `<由控制器填写>`）：满意度与反馈摘要的回收率分子只数「评价与运行都在窗口内结束」的条数（≤100%）；`MetricCardOut` 加 `currency`，成本卡单币种时由前端显示 ¥/$；分组图用 `/api/agent/specs` 的 title 显示工单类型、不再摆 `ticket.kind` 原值；accuracy secondary 展示标签已在 `f855f24` 修正为「可判定用例数」。spec §4.3/§4.5.1/§4.5.2/§4.5.4 与 docs/10 §8 同步。
 
 ## 验证证据
 
 | 命令 | 结果 |
 |---|---|
-| 后端全量 pytest（`/tmp/m99-t12-pytest.log`） | `1`；4 failed：Task 1 基线 3 条活动资源包失败 + 既有 flake `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service`（详见「遗留」）；无其他失败。`pytest.ini` 的 addopts 已含 `-q`，命令行再带 `-q` 变 `-qq`，日志没有 passed 计数 |
-| OpenAPI 重生成 + `--check` | 两个 `0`；`web/openapi.json` 无变化 |
-| `pnpm gen:api:check` | `0`，`web/src/types/api.d.ts` 无变化 |
+| 后端全量 pytest（`/tmp/m99-t12-pytest.log`） | `1`；最终验收全量失败 **3 条**，全部为 Task 1 登记的环境基线（真实活动资源包缺失：`test_activity_index` 2 条、`test_stage_layout` 1 条）；无其他失败。T12 曾多 1 条 incident 顺序 flake，复核后最终验收未复现（见「遗留」）。`pytest.ini` 的 addopts 已含 `-q`，命令行再带 `-q` 变 `-qq`，日志没有 passed 计数 |
+| OpenAPI 重生成 + `--check` | 两个 `0`；T12 时 `web/openapi.json` 无变化，fix wave 因新增 `currency` 重生成并再 `--check` 0（见下） |
+| `pnpm gen:api:check` | `0`；T12 时 `web/src/types/api.d.ts` 无变化，fix wave 重生成后 check 0 |
 | 前端 `pnpm install --frozen-lockfile` / `pnpm typecheck` | `0` / `0` |
 | 前端 `pnpm test --run`（`/tmp/m99-t12-web-test.log`） | `0`；125 files / 1066 tests passed |
 | 前端 `pnpm build`（`/tmp/m99-t12-web-build.log`） | `0`；SW harness `SERVICE WORKER OK` |
@@ -30,6 +31,8 @@
 | `generate_api_guide.py` + `--check` | 两个 `0`；15 补进 `EVAL_RUN_NOT_FOUND` 一行 |
 | `scripts/check_doc_links.py` | `0`，末行 `BROKEN 0` |
 | `git diff --check` | `0` |
+| 最终整支复审（HEAD `f855f24`） | Verdict **With fixes**，无 Critical；4 条 in-scope 修复项：① 满意度/反馈摘要的回收率分子可超过分母（>100%）；② 单币种成本卡不带币种符号；③「按工单类型」分组图显示原始 `ticket.kind`；④ docs/13 §8.186 与台账未随 `f855f24` 更新 |
+| 本次 fix wave（提交 `<由控制器填写>`） | 四条修复：① 回收率分子 join `agent_run`，只数「评价与运行都在窗口内结束」的条数，保证 ≤1.0；② `MetricCardOut.currency` + 前端 `formatMicros(value, currency)`，单币种显示 ¥/$、多币种保持现状，`web/openapi.json` 与 `web/src/types/api.d.ts` 已重生成；③ 分组图用 spec title 显示工单类型（找不到回退 label）；④ docs/13 §8.186 与台账校正（label 已修、incident 方向、pytest 3 条）。验证见 task-12 报告「Final-review fix wave」 |
 | 手工 API 验收（真实 `create_app()` TestClient + 开发库 `resource/maa_api.db`） | 见下 |
 
 手工验收（2026-11-11，命令输出在 `/tmp/m99-t12-manual.log`、`/tmp/m99-t12-manual-overview.log`）：
@@ -67,9 +70,8 @@
 - ticket 级反馈（当前只有运行级评价；工单满意度由名下运行汇总）。
 - A/B 实验指标与 M98 的版本化（本里程碑不建相关表、不读指标）。
 - 历史评测结果导入（`resource/evals/` 里的旧结果不迁移）。
-- 准确率 secondary 的展示 label 在实现/测试里仍是「评测用例数」，spec 与 docs/10 已写「可判定用例数」；数值口径正确，只差 `maa_api/services/insights/service.py` 与 `tests/services/test_insights_service.py` 两处字符串未改名。T12 按「不改代码」约束记为整支复审待办。
 - `eval_case_result.score` 暂为 `NULL`；若后续要展示分数，需先定义聚合口径。
 - `RunFeedbackRepository.upsert` 的并发首提交竞态（T2 复审延后，单次提交无问题）。
-- `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service` 在 T12 全量失败；单测单跑 2/2 复现 60 秒超时，但整个 `tests/agent/test_incidents.py` 文件 16 passed（2.44s），是顺序/装配相关的既有 flake。测试源码自带 M68/M71「已知 flake」注释（确认广播与 waiter 注册的竞态），分支未改 `runtime.py`/`harness/`/该测试；按既有 flaky 记录，不计 M99 新增，但需整支复审关注。
+- `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service` 在 T12 全量出现过超时；控制器复核为既有顺序/装配 flake：单测单跑通过（0.91s），仅跑 `tests/agent/test_incidents.py` 整个文件时该测超时（16 例中 1 失败，62s），最终验收全量未复现。测试源码自带 M68/M71「已知 flake」注释（确认广播与 waiter 注册的竞态），分支未改 `runtime.py`/`harness/`/该测试，与 M99 代码无关。
 - `/api/agent/runs` 的 `ticket_id` 过滤缺陷（spec §2 明确不在本里程碑修复）。
 - 未做真机/真实浏览器手工验收；前端行为由 jsdom 测试、build 与 `frontend_smoke` 覆盖。

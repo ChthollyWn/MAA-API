@@ -152,6 +152,7 @@ class MetricCardOut(BaseModel):
     label: str
     scope: MetricScope
     unit: str
+    currency: str | None
     value: float | None
     sample_size: int
     ci_low: float | None
@@ -191,6 +192,7 @@ def metric_card_out(card: MetricCard) -> MetricCardOut:
         label=definition.label,
         scope=definition.scope,
         unit=definition.unit,
+        currency=reading.currency,
         value=reading.value,
         sample_size=reading.sample_size,
         ci_low=reading.ci_low,

@@ -5678,6 +5678,8 @@ export interface components {
             ci_high: number | null;
             /** Ci Low */
             ci_low: number | null;
+            /** Currency */
+            currency: string | null;
             /** Delta */
             delta: number | null;
             evidence: components["schemas"]["EvidenceGrade"];

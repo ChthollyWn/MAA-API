@@ -6067,6 +6067,17 @@
             ],
             "title": "Ci Low"
           },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
           "delta": {
             "anyOf": [
               {
@@ -6134,6 +6145,7 @@
           "label",
           "scope",
           "unit",
+          "currency",
           "value",
           "sample_size",
           "ci_low",
