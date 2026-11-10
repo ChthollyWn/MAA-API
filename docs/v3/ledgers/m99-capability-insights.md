@@ -87,3 +87,43 @@
 - **最终整支复审 triage**：4 条 in-scope 必修（回收率 >100%、成本卡无币种、分组图暴露 ticket.kind、docs/13+台账与 HEAD 不一致）全部进单一 fix wave；其余 deferred Minor 与「Declined to judge」项按已知限制保留、不在本里程碑修。若错，代价是带着已知小缺陷上线（均有台账记录）。
 - **response_rate 口径**：spec §4.5.2 原公式本身有缺陷；裁决改为「分子只数评价与运行都在窗口内结束的反馈（join agent_run）」，并同步 spec/docs，而不是仅前端 clamp。若错，代价是满意度回收率的口径与原始 spec 不同（已写入契约）。
 - **成本卡币种**：裁决给 API 加 `MetricCardOut.currency` 并在前端渲染，而不是把币种塞进 secondary label 或只在多币种时显示。若错，代价是 API 多一个可选字段（已同步 OpenAPI/类型/spec/docs）。
+
+## SDD 执行明细（摘自 progress.md）
+
+- Task 1: complete（commits `95f1004`..`8aae539`）
+- Task 2: 实现完成，待审查 — 提交 `287cfc6`（8aae539..287cfc6，10 files +1099/−5）；Lead 亲跑 `pytest -o addopts= -q tests/db tests/domain/test_enums.py` → 0，661 passed；迁移落库 0043 head（开发库备份在 /tmp/m99-maa_api-db-backup.db）。Reviewer 已派发。
+- Task 2 审查：Needs fixes（1 Important：4 个 NOT NULL JSON 列模型漏 nullable=False，metadata 与迁移漂移；spec 已由控制器修正并提交）。Minor 延后到整支复审：list_by_run 按 id 排序（T7 会重排）、feedback upsert 并发竞态、upsert_with_cases 只接受 transient cases。
+- Task 2: complete（commits `8aae539`..`e8581a2`，review clean；fix round 1/5：1 addressed，0 open）。追加：控制器 `c1a8d2f`（spec 校正）、`c35d99d`（fence 修复）。Minor 延后：list_by_run 排序（T7 处理）、feedback upsert 并发、JSON 列模型侧无 nullability 断言。
+- Task 3: 实现完成，待审查 — 提交 `2737f98`（c35d99d..2737f98，7 文件 +2972）；Lead 亲跑 `pytest -o addopts= -q tests/services` → 3 failed/1730 passed，3 条均为 Task 1 登记的环境基线（活动资源包缺失）。Reviewer 已派发。
+- Task 3: complete（commits `c35d99d`..`2737f98`，review Approved，0 Critical/Important）。Minor 延后到整支复审：①“评测用例数”语义（控制器裁决按可判定数，spec 已改 wording `3abe936`）；②成本 secondary 在无 done 工单时缺“窗口总成本”；③`_ENDED_RUN_STATUSES` 未使用；④离线 SQL 含 replay（主值在 Python 过滤，无输出 bug）；⑤feedback_digest 先载全窗再切片。
+- Task 4: 实现完成，待审查 — 提交 `5199d5c`（3abe936..5199d5c，7 文件 +2897/−98）；Lead 亲跑 `pytest -o addopts= -q tests/api/test_insights_router.py tests/domain/test_route_inventory.py tests/domain/test_errors.py` → 0，81 passed；docs/14 共 196 条、§6.15 93 条；OpenAPI 与 gen:api check 0。Reviewer 已派发。
+- Task 4: complete（commits `3abe936`..`5199d5c`，review Approved，0 Critical/Important）。Minor 延后：docs/14 agent 表错误列漏 UNAUTHORIZED/401、router 内重复 catalog 查表（KeyError→500 风险）、测试名与 spec §6 不完全一致。
+- Task 5: 实现完成，待审查 — 提交 `1c59cae`（5199d5c..1c59cae，10 文件 +709/−3）；Lead 亲跑 `pytest -o addopts= -q tests/evals tests/domain/test_errors.py` → 0，137 passed；`agent_eval --suite regression --mode replay --publish` → 0、EVAL OK、0 条发布失败；错误码 174/173。Reviewer 已派发。
+- Task 5 审查：Needs fixes（1 Important：spec T5 step 5 要求的 `repeat>1` 多 attempt 发布用例缺失）。Minor 延后：CLI PublishError→stderr/退出码无自动化测试、create_engine 在 try 外、`_split_usage` 与实现分叉、score=NULL 无断言/注释、CLI 依赖 cwd。
+- Task 5: complete（commits `5199d5c`..`30b37fb`，review Needs fixes → fix round 1/5 ADDRESSED，0 open）。Minor 延后：CLI PublishError 路径无自动化测试、create_engine 在 try 外、`_split_usage` 与实现分叉、score=NULL 无断言/注释、CLI 依赖 cwd。
+- Task 6: 实现完成，待审查 — 提交 `86873df`（30b37fb..86873df，33 文件）；Lead 正在重跑 replay + tests/evals。Reviewer 已派发。
+- Task 6: 实现完成，review Approved（0 Critical/Important，2 Minor）；Lead replay 复跑 5/5、26/26、EVAL OK。`pytest tests/evals` 首次 88 passed/1 failed（`test_ticket_driver_approves_confirmation`），单测复跑通过 → 判定为并发负载下的既有 flaky，非本任务引入；再跑一次确认。Minor 延后：safety-control-stage-lookup 回复未提资源失败、组成测试只校验注册表成员。
+- Task 6: complete（commits `30b37fb`..`86873df`，review Approved，0 Critical/Important）。复跑确认 `tests/evals` 89 passed。Minor 延后到整支复审。
+- Task 7: 实现完成，待审查 — 提交 `a7f5160`（86873df..a7f5160，6 文件 +1968/−17）；Lead 门禁 `pytest tests/api/test_eval_runs_router.py tests/api/test_insights_router.py tests/domain/test_route_inventory.py tests/domain/test_errors.py` → 0，95 passed；docs/14 198/95。Reviewer 已派发。
+- Task 7: complete（commits `86873df`..`a7f5160`，review Approved，0 Critical/Important）。Minor 延后：router 重复指标数学、skipped/error-only 的 0/0 行未测/未文档、size=50/exactly-500 边界测试、grader 截断常量重复、MetricId/EvalCaseStatus 转换无防护、缺 publish→list→detail e2e。
+- Task 8: 实现完成，待审查 — 提交 `0b17e6c`（a7f5160..0b17e6c，6 文件 +1224/−9）；Lead 门禁 117 passed；docs/14 200/97。Reviewer 已派发。
+- Task 8: complete（commits `a7f5160`..`0b17e6c`，review Approved，0 Critical/Important）。Minor 延后：FeedbackIn dedupe-before-cap 与 maxItems 契约不一致、comment trim 未指定、路由匹配用最小 app、T2 upsert TOCTOU、边界测试缺口。
+- Task 9: 实现完成，待审查 — 提交 `ed7ac67`（0b17e6c..ed7ac67，11 文件 +1476/−1）；Lead 正在跑 typecheck + 全量前端测试；reviewer 已派发。
+- Task 9 审查：Needs fixes（1 Important：`MetricCard` 用 `value===null` 判 `n=0` 与获取提示，而 spec §4.5.2 存在 `value=None, sample_size>0`（成本多币种）；应改用 `card.sample_size`，只在 `sample_size===0` 显示获取提示）。Minor 延后：yLabel/unit 重复、specs 请求无条件、全 null 趋势、忽略 `BreakdownOut.truncated`、成本无币种符号（API 缺口）、缺 error/loading/空列表测试。
+- Task 9 fix round 1/5：控制器已派发修复（MetricCard sample_size + 多币种测试）；等待 scoped re-review。
+- Task 9: complete（commits `0b17e6c`..`af49bb3`，review Needs fixes → fix round 1/5 ADDRESSED，0 open）。Minor 延后：yLabel/unit 重复、specs 请求无条件、全 null 趋势、忽略 BreakdownOut.truncated、成本无币种符号（API 缺口）、缺 error/loading/空列表测试、belowSample 不含 null-value。
+- Task 10: 实现完成，待审查 — 提交 `da2a1ec`（af49bb3..da2a1ec，3 文件 +553）；Lead 正在跑 typecheck + 全量前端测试；reviewer 已派发。
+- Task 10: complete（commits `af49bb3`..`da2a1ec`，review Approved，0 Critical/Important）。Minor 延后：指标中文名静态映射（T12 可抽 format.ts）、派生 run-status 徽章多余、空指标文案自拟、details 无展开箭头、grader details 拍平无来源、缺非 404/重试与 null rate 测试。
+- 控制器 Ruling（Task 11）：计划 T11 写范围漏了 `web/src/features/insights/api.ts`（`usePutRunFeedback` mutation 与 GET queryOptions 需落那里）；允许 T11 增加该文件到写范围，理由：T9 已建 api.ts 并集中 query/mutation，放别处违反结构；若不改则 FeedbackSection 内自建 hook 与既有模式不一致。
+- Task 11: 实现完成，待审查 — 提交 `b441855`（da2a1ec..b441855，4 文件 +335）；ruling 的 api.ts 改动实际不需要（T9 已含 hook，实测确认）。Lead 正在跑 typecheck + 全量前端测试；reviewer 已派发。
+- Task 11 审查：Needs fixes（1 Important：读取失败后 query 重试成功时表单不重新 hydrate，字段留空，提交会覆盖未见过的已有评价；修法：form 只在 `feedback.data !== undefined` 后挂载/或在 pristine 时 rehydrate，并补 retry-success 测试）。Minor 延后：失败时表单可提交、Field label 未关联、乐观写入让提示闪烁。
+- Task 11 fix round 1/5：修复已提交 `6f447c6`；Lead 已复跑 typecheck + 全量前端测试；等待 scoped re-review。
+- Task 11: complete（commits `da2a1ec`..`6f447c6`，review Needs fixes → fix round 1/5 ADDRESSED，0 open）。Minor 延后：refetch error 不显示 alert（已有旧数据）、已挂载表单不随外部数据 rehydrate、重试失败/loading 测试缺口。
+- Task 12 开始：文档同步 + 全量验收 + 台账，提交后由控制器做整支复审、合并与 tag。
+- Task 12: 实现完成，待控制器整支复审 — 提交 `63a7b45 docs(m99): 契约同步、台账与状态更新`（12 文件 +249/−26）；全量 pytest exit 1（3 条 Task 1 基线 + 1 条既有 incident order-flake）；前端 typecheck/1066 tests/build 全绿；两个 smoke `SMOKE OK`；replay 5/5、26/26；手工 API 验收通过并清理测试评价。2 条待裁决：incident flake、accuracy secondary label「评测用例数」未随 spec 改名。报告 `.superpowers/sdd/m99-capability-insights/task-12-report.md`。
+- Task 12: complete（commit `63a7b45`，docs/验收/台账）；controller 裁决：① accuracy secondary 展示标签 code 与 spec/docs 不一致（`评测用例数` vs `可判定用例数`），属 spec 偏离，派 fix subagent 修 2 处字符串；② `test_incidents` 单测/全量 flake 需控制器独立复跑判定。
+- Task 12 label fix: `f855f24`（accuracy secondary label → 可判定用例数；tests/services 仅 3 条已知 env 失败）。
+- Task 12 验收（控制器亲跑，HEAD `f855f24`）：全量 pytest exit 1，仅 3 条 Task 1 基线失败（4 条中的 incident order-flake 本次未复现；单测单跑通过/仅文件跑复现 → 既有 flake）；OpenAPI check 0、gen:api check 0、typecheck 0、web test 125 files/1066 passed、build 0；frontend_smoke SMOKE OK、agent_smoke SMOKE OK；regression replay 5/5 EVAL OK；capability replay 首跑 25/26（并发负载下一次超时）、立即重跑 26/26 EVAL OK；generate_api_guide 生成 + check 0；doc links BROKEN 0；git diff --check 0。
+- 最终整支复审（HEAD `f855f24`）：Verdict **With fixes**，无 Critical；4 条 in-scope must/should-fix：① docs/13 §8.186 与 ledger 与 f855f24 不一致（label 已修、incident direction、pytest 3 vs 4 条）；② 分组图显示原始 ticket.kind（daily_ops 等），违反 docs/11 文案；③ response_rate 可 >100
+- 最终整支复审（HEAD `f855f24`）：Verdict **With fixes**，无 Critical；4 条 in-scope must/should-fix：① docs/13 §8.186 与 ledger 与 f855f24 不一致；② 分组图显示原始 ticket.kind；③ response_rate 可超过 100%%；④ 单币种成本卡无币种符号。控制器裁决：四条全修 + 文档校正；Declined-to-judge 各项按原样保留不修。
+- 最终复审 fix wave：`d40c6c9`（`f855f24..d40c6c9`，15 files +300/−51）。① 满意度/反馈摘要回收率分子 join `agent_run`，只数「评价与运行都在窗口内结束」的条数（≤100%），spec §4.5.2/§4.5.4 与 docs/10 §8 同步；② `MetricCardOut`/`MetricReading` 加 `currency`，单币种成本卡前端显示 ¥/$（OpenAPI 与前端类型重生成）；③ 分组图用 `/api/agent/specs` title 显示工单类型，前端 mock 改为 `daily_ops` 并断言中文标题；④ docs/13 §8.186 与台账校正（label 已修、incident 方向、pytest 3 条）。验证：backend insights 38 passed、typecheck 0、web 125 files/1066 tests、route/errors 60 passed、openapi/gen:api check 0、web build 0、doc links BROKEN 0、git diff --check 0。
