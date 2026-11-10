@@ -127,3 +127,10 @@
 - 最终整支复审（HEAD `f855f24`）：Verdict **With fixes**，无 Critical；4 条 in-scope must/should-fix：① docs/13 §8.186 与 ledger 与 f855f24 不一致（label 已修、incident direction、pytest 3 vs 4 条）；② 分组图显示原始 ticket.kind（daily_ops 等），违反 docs/11 文案；③ response_rate 可 >100
 - 最终整支复审（HEAD `f855f24`）：Verdict **With fixes**，无 Critical；4 条 in-scope must/should-fix：① docs/13 §8.186 与 ledger 与 f855f24 不一致；② 分组图显示原始 ticket.kind；③ response_rate 可超过 100%%；④ 单币种成本卡无币种符号。控制器裁决：四条全修 + 文档校正；Declined-to-judge 各项按原样保留不修。
 - 最终复审 fix wave：`d40c6c9`（`f855f24..d40c6c9`，15 files +300/−51）。① 满意度/反馈摘要回收率分子 join `agent_run`，只数「评价与运行都在窗口内结束」的条数（≤100%），spec §4.5.2/§4.5.4 与 docs/10 §8 同步；② `MetricCardOut`/`MetricReading` 加 `currency`，单币种成本卡前端显示 ¥/$（OpenAPI 与前端类型重生成）；③ 分组图用 `/api/agent/specs` title 显示工单类型，前端 mock 改为 `daily_ops` 并断言中文标题；④ docs/13 §8.186 与台账校正（label 已修、incident 方向、pytest 3 条）。验证：backend insights 38 passed、typecheck 0、web 125 files/1066 tests、route/errors 60 passed、openapi/gen:api check 0、web build 0、doc links BROKEN 0、git diff --check 0。
+
+## 合并后复验（dev，2026-11-11 03:4x）
+
+- 全量 pytest（`/tmp/m99-postmerge-pytest.log`）：exit 1，4 条失败 = 3 条已知环境基线 + `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service`（该侧既有顺序/装配 flake，见遗留）。
+- 复核该 flake 呈**非确定性双向**：首轮单测通过（0.91s）、只跑该文件时同测超时（62s）；本轮单测超时（60.71s）、只跑该文件 16 passed（2.44s）。四轮全量 pytest 中三轮只有 3 条基线失败、一轮多此 flake；`git diff fc3c513..HEAD -- maa_api/agent/runtime.py maa_api/agent/harness tests/agent/test_incidents.py` 为空，与 M99 改动无关。
+- 其余门禁在合并后复跑：`dump_openapi.py --check` 0、`pnpm gen:api:check` 0、route_inventory+errors 60 passed、`check_doc_links.py` `BROKEN 0`。
+- 分支 `capability-insights` 已删；tag `v3-m99` 已打；未 push（dev ahead origin/dev 25 个提交）。
