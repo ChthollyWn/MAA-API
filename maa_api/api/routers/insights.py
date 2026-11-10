@@ -1,4 +1,4 @@
-"""能力效果看板的指标与评测运行端点（M99 规格 §4.3 的 1–6 与 9 号）。
+"""能力效果看板的指标、评测运行与运行反馈端点（M99 规格 §4.3 的 1–9 号）。
 
 所有端点都先确认 ``app.state.insights_service`` 已装配（进程启动中、或测试只
 装了路由时返回 503 ``SERVICE_UNAVAILABLE``）；指标端点直接从
@@ -7,14 +7,21 @@
 ``EvalCaseRepository``：列表分页与详情用例都走仓储，指标率在路由层按这次运行
 自身的全部 case 现算，不复用服务的窗口口径（spec §4.5.3 末段）。
 
+反馈的两个端点（7、8 号）同样用请求作用域会话，但只读 ``agent_run`` 与
+``run_feedback``：先确认运行存在（否则 404 ``RUN_NOT_FOUND``），``PUT`` 再按
+``run_id`` upsert，``GET`` 在没有评价时返回 ``{"item": null}``。``PUT`` 的
+``updated_at`` 必须是**本次请求时刻**（仓储原样写入；spec 交接口径，见
+``db/repositories/feedback.py`` 的模块说明），``created_at`` 由仓储保留；不校验
+运行状态，运行中断后也可以评价（spec §4.5.4）。``comment`` 去空白后为空串按
+``None`` 存。
+
 参数边界交给 Pydantic：``window_days`` 1–365、反馈摘要的 ``limit`` 1–20、
-未知 ``metric`` 由 ``MetricId`` 校验，越界都是 422。评测列表的 ``page`` / ``size``
+未知 ``metric`` 由 ``MetricId`` 校验，越界都是 422；反馈的 ``rating`` 1–5、
+``reasons`` 去重后最多 5 个、``comment`` ≤ 500 字。评测列表的 ``page`` / ``size``
 在函数里校验，非法时是 400 ``INVALID_PAGINATION``（spec §4.5.5）。指标是否支持
 趋势 / 分组由目录判定：不支持分组时返回 400 ``INVALID_PARAMETER``，
 ``details.supported`` 给可分组指标的 id 列表。时间字段按 ``runs.py`` 的
 ``_utc_z`` 渲染成带 ``Z`` 的 ISO 8601。
-
-本任务加 1–6 与 9 号端点；反馈写入 / 读取端点由后续任务补在同一个 ``APIRouter`` 上。
 """
 
 from __future__ import annotations
@@ -33,20 +40,25 @@ from maa_api.api.schemas.insights import (
     EvalRunDetailOut,
     EvalRunPage,
     FeedbackDigestOut,
+    FeedbackIn,
+    FeedbackOut,
     MetricCatalogOut,
     OverviewOut,
+    RunFeedbackOut,
     TrendOut,
     breakdown_out,
     eval_case_out,
     eval_run_detail_out,
     eval_run_page_out,
     feedback_digest_out,
+    feedback_out,
     metric_definition_out,
     overview_out,
     trend_out,
 )
-from maa_api.db.models import EvalCaseResult
+from maa_api.db.models import AgentRun, EvalCaseResult, RunFeedback, utcnow
 from maa_api.db.repositories.evals import EvalCaseRepository, EvalRunRepository
+from maa_api.db.repositories.feedback import RunFeedbackRepository
 from maa_api.domain.enums import EvalRunMode, MetricId, MetricScope
 from maa_api.domain.errors import AppError, ErrorCode
 from maa_api.services.insights import METRICS, InsightsService, MetricDefinition
@@ -92,6 +104,20 @@ def _validate_eval_pagination(page: int, size: int) -> None:
             ErrorCode.INVALID_PAGINATION,
             f"page 不能小于 1，size 需在 1–{MAX_EVAL_PAGE_SIZE} 之间",
         )
+
+
+async def _require_run(session: AsyncSession, run_id: str) -> None:
+    """运行不存在时 404 ``RUN_NOT_FOUND``；不校验运行状态（spec §4.5.4）。"""
+    if await session.get(AgentRun, run_id) is None:
+        raise AppError(ErrorCode.RUN_NOT_FOUND, "没有这个运行", {"run_id": run_id})
+
+
+def _normalized_comment(comment: str | None) -> str | None:
+    """去首尾空白；空串或纯空白按 ``None`` 存（spec §4.5.4）。"""
+    if comment is None:
+        return None
+    stripped = comment.strip()
+    return stripped or None
 
 
 def _metric_rates(cases: Sequence[EvalCaseResult]) -> list[EvalMetricRateOut]:
@@ -298,6 +324,69 @@ async def get_eval_run(
         shown,
         _metric_rates(ordered),
         cases_truncated=len(ordered) > MAX_EVAL_CASES,
+    )
+
+
+@router.put(
+    "/runs/{run_id}/feedback",
+    response_model=FeedbackOut,
+    summary="提交或覆盖一次运行的评价",
+    responses=error_responses(
+        "RUN_NOT_FOUND",
+        "VALIDATION_ERROR",
+        "SERVICE_UNAVAILABLE",
+        "UNAUTHORIZED",
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def put_run_feedback(
+    payload: FeedbackIn,
+    request: Request,
+    run_id: str = PathParam(min_length=1, max_length=36, description="运行 id"),
+    session: AsyncSession = Depends(get_session),
+) -> FeedbackOut:
+    """按 ``run_id`` upsert：没有则插入，已有则覆盖且 ``created_at`` 不变。
+
+    ``updated_at`` 由这里取请求时刻：仓储照入参原样写入，不自己生成时间
+    （``db/repositories/feedback.py`` 的模块说明）。``reasons`` 已在 ``FeedbackIn``
+    里去重（去重后最多 5 个）；``comment`` 去空白后为空按 ``None``。运行不存在是
+    404 ``RUN_NOT_FOUND``；不校验运行状态。
+    """
+    _insights_service(request)
+    await _require_run(session, run_id)
+    feedback = await RunFeedbackRepository(session).upsert(
+        RunFeedback(
+            run_id=run_id,
+            rating=payload.rating,
+            reasons=[reason.value for reason in payload.reasons],
+            comment=_normalized_comment(payload.comment),
+            updated_at=utcnow(),
+        )
+    )
+    await session.commit()
+    return feedback_out(feedback)
+
+
+@router.get(
+    "/runs/{run_id}/feedback",
+    response_model=RunFeedbackOut,
+    summary="读取一次运行的评价",
+    responses=error_responses(
+        "RUN_NOT_FOUND", "SERVICE_UNAVAILABLE", "UNAUTHORIZED"
+    ),
+    dependencies=[Depends(require_auth)],
+)
+async def get_run_feedback(
+    request: Request,
+    run_id: str = PathParam(min_length=1, max_length=36, description="运行 id"),
+    session: AsyncSession = Depends(get_session),
+) -> RunFeedbackOut:
+    """运行存在但没有评价时返回 ``{"item": null}``；运行不存在才 404。"""
+    _insights_service(request)
+    await _require_run(session, run_id)
+    feedback = await RunFeedbackRepository(session).get_by_run(run_id)
+    return RunFeedbackOut(
+        item=None if feedback is None else feedback_out(feedback)
     )
 
 

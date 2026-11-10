@@ -14,7 +14,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from maa_api.domain.enums import (
     EvalCaseStatus,
@@ -35,7 +35,7 @@ from maa_api.services.insights import (
 )
 
 if TYPE_CHECKING:
-    from maa_api.db.models import EvalCaseResult, EvalRun
+    from maa_api.db.models import EvalCaseResult, EvalRun, RunFeedback
     from maa_api.db.repositories.base import Page
 
 __all__ = [
@@ -47,11 +47,14 @@ __all__ = [
     "EvalRunPage",
     "EvalRunSummaryOut",
     "FeedbackDigestOut",
+    "FeedbackIn",
+    "FeedbackOut",
     "InsightFeedbackItemOut",
     "MetricCardOut",
     "MetricCatalogOut",
     "MetricDefinitionOut",
     "OverviewOut",
+    "RunFeedbackOut",
     "SubMetricOut",
     "TrendOut",
     "TrendPointOut",
@@ -61,6 +64,7 @@ __all__ = [
     "eval_run_page_out",
     "eval_run_summary_out",
     "feedback_digest_out",
+    "feedback_out",
     "metric_card_out",
     "metric_definition_out",
     "overview_out",
@@ -525,4 +529,79 @@ def feedback_digest_out(data: FeedbackDigestData) -> FeedbackDigestOut:
             )
             for item in data.items
         ],
+    )
+
+
+# ----------------------------------------------------------------------
+# 运行评价（提交 / 读取）
+# ----------------------------------------------------------------------
+#: 一次评价最多带 5 个原因（spec §4.3、§4.5.4）。
+MAX_FEEDBACK_REASONS = 5
+
+
+class FeedbackIn(BaseModel):
+    """``PUT /api/agent/runs/{run_id}/feedback`` 的请求体（spec §4.3）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    rating: int = Field(ge=1, le=5, description="1（最差）–5（最好）")
+    reasons: list[FeedbackReason] = Field(
+        default_factory=list,
+        max_length=MAX_FEEDBACK_REASONS,
+        description="不满意原因，去重后最多 5 个",
+    )
+    comment: str | None = Field(
+        default=None, max_length=500, description="评论，最长 500 字；空白按 null 存"
+    )
+
+    @field_validator("reasons", mode="before")
+    @classmethod
+    def _dedupe_reasons(cls, value: Any) -> Any:
+        """按首次出现顺序去重（spec §4.5.4「去重后最多 5 个」）。
+
+        去重必须在长度约束之前：请求里重复的取值不该因为原始数组超过 5 项就被
+        422 拒绝；``FeedbackReason`` 只有 5 个取值，去重后必然不超过
+        ``max_length``。未知取值不在这里过滤，仍由枚举校验报 422。
+        """
+        if not isinstance(value, list):
+            return value
+        deduped: list[Any] = []
+        for item in value:
+            if item not in deduped:
+                deduped.append(item)
+        return deduped
+
+
+class FeedbackOut(BaseModel):
+    """一条运行评价（spec §4.3）；``created_at`` / ``updated_at`` 是带 ``Z`` 的时间。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: int
+    run_id: str
+    rating: int
+    reasons: list[FeedbackReason]
+    comment: str | None
+    created_at: str
+    updated_at: str
+
+
+class RunFeedbackOut(BaseModel):
+    """``GET /api/agent/runs/{run_id}/feedback`` 的响应信封；没有评价时 ``item=null``。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    item: FeedbackOut | None
+
+
+def feedback_out(feedback: RunFeedback) -> FeedbackOut:
+    """行 → wire：``reasons`` 从库里的字符串还原成枚举，时间经 :func:`_utc_z`。"""
+    return FeedbackOut(
+        id=feedback.id,
+        run_id=feedback.run_id,
+        rating=feedback.rating,
+        reasons=[FeedbackReason(reason) for reason in feedback.reasons],
+        comment=feedback.comment,
+        created_at=_utc_z(feedback.created_at),
+        updated_at=_utc_z(feedback.updated_at),
     )

@@ -3737,6 +3737,101 @@
         "title": "FeedbackDigestOut",
         "type": "object"
       },
+      "FeedbackIn": {
+        "additionalProperties": false,
+        "description": "``PUT /api/agent/runs/{run_id}/feedback`` 的请求体（spec §4.3）。",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "评论，最长 500 字；空白按 null 存",
+            "title": "Comment"
+          },
+          "rating": {
+            "description": "1（最差）–5（最好）",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Rating",
+            "type": "integer"
+          },
+          "reasons": {
+            "description": "不满意原因，去重后最多 5 个",
+            "items": {
+              "$ref": "#/components/schemas/FeedbackReason"
+            },
+            "maxItems": 5,
+            "title": "Reasons",
+            "type": "array"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "title": "FeedbackIn",
+        "type": "object"
+      },
+      "FeedbackOut": {
+        "additionalProperties": false,
+        "description": "一条运行评价（spec §4.3）；``created_at`` / ``updated_at`` 是带 ``Z`` 的时间。",
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "rating": {
+            "title": "Rating",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "rating",
+          "reasons",
+          "comment",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "FeedbackOut",
+        "type": "object"
+      },
       "FeedbackReason": {
         "description": "用户对一次运行不满意的原因标签（spec §4.5.4）。",
         "enum": [
@@ -10678,6 +10773,27 @@
           "meta"
         ],
         "title": "RunDetail",
+        "type": "object"
+      },
+      "RunFeedbackOut": {
+        "additionalProperties": false,
+        "description": "``GET /api/agent/runs/{run_id}/feedback`` 的响应信封；没有评价时 ``item=null``。",
+        "properties": {
+          "item": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "item"
+        ],
+        "title": "RunFeedbackOut",
         "type": "object"
       },
       "RunPage": {
@@ -21487,6 +21603,214 @@
           }
         },
         "summary": "读取运行与子运行树",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/runs/{run_id}/feedback": {
+      "get": {
+        "description": "运行存在但没有评价时返回 ``{\"item\": null}``；运行不存在才 404。",
+        "operationId": "agent_get_run_feedback",
+        "parameters": [
+          {
+            "description": "运行 id",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "运行 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunFeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RUN_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：RUN_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取一次运行的评价",
+        "tags": [
+          "agent"
+        ]
+      },
+      "put": {
+        "description": "按 ``run_id`` upsert：没有则插入，已有则覆盖且 ``created_at`` 不变。\n\n``updated_at`` 由这里取请求时刻：仓储照入参原样写入，不自己生成时间\n（``db/repositories/feedback.py`` 的模块说明）。``reasons`` 已在 ``FeedbackIn``\n里去重（去重后最多 5 个）；``comment`` 去空白后为空按 ``None``。运行不存在是\n404 ``RUN_NOT_FOUND``；不校验运行状态。",
+        "operationId": "agent_put_run_feedback",
+        "parameters": [
+          {
+            "description": "运行 id",
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "description": "运行 id",
+              "maxLength": 36,
+              "minLength": 1,
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackIn"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "RUN_NOT_FOUND",
+                    "details": {},
+                    "message": "资源不存在"
+                  }
+                }
+              }
+            },
+            "description": "资源不存在：RUN_NOT_FOUND"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "提交或覆盖一次运行的评价",
         "tags": [
           "agent"
         ]

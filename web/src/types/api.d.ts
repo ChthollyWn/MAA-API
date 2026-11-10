@@ -1318,6 +1318,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/runs/{run_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取一次运行的评价
+         * @description 运行存在但没有评价时返回 ``{"item": null}``；运行不存在才 404。
+         */
+        get: operations["agent_get_run_feedback"];
+        /**
+         * 提交或覆盖一次运行的评价
+         * @description 按 ``run_id`` upsert：没有则插入，已有则覆盖且 ``created_at`` 不变。
+         *
+         *     ``updated_at`` 由这里取请求时刻：仓储照入参原样写入，不自己生成时间
+         *     （``db/repositories/feedback.py`` 的模块说明）。``reasons`` 已在 ``FeedbackIn``
+         *     里去重（去重后最多 5 个）；``comment`` 去空白后为空按 ``None``。运行不存在是
+         *     404 ``RUN_NOT_FOUND``；不校验运行状态。
+         */
+        put: operations["agent_put_run_feedback"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/runs/{run_id}/spans": {
         parameters: {
             query?: never;
@@ -4758,6 +4787,47 @@ export interface components {
             window_days: number;
         };
         /**
+         * FeedbackIn
+         * @description ``PUT /api/agent/runs/{run_id}/feedback`` 的请求体（spec §4.3）。
+         */
+        FeedbackIn: {
+            /**
+             * Comment
+             * @description 评论，最长 500 字；空白按 null 存
+             */
+            comment?: string | null;
+            /**
+             * Rating
+             * @description 1（最差）–5（最好）
+             */
+            rating: number;
+            /**
+             * Reasons
+             * @description 不满意原因，去重后最多 5 个
+             */
+            reasons?: components["schemas"]["FeedbackReason"][];
+        };
+        /**
+         * FeedbackOut
+         * @description 一条运行评价（spec §4.3）；``created_at`` / ``updated_at`` 是带 ``Z`` 的时间。
+         */
+        FeedbackOut: {
+            /** Comment */
+            comment: string | null;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Rating */
+            rating: number;
+            /** Reasons */
+            reasons: components["schemas"]["FeedbackReason"][];
+            /** Run Id */
+            run_id: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
          * FeedbackReason
          * @description 用户对一次运行不满意的原因标签（spec §4.5.4）。
          * @enum {string}
@@ -7352,6 +7422,13 @@ export interface components {
             ticket_id?: string | null;
             /** Trigger Seq */
             trigger_seq: number | null;
+        };
+        /**
+         * RunFeedbackOut
+         * @description ``GET /api/agent/runs/{run_id}/feedback`` 的响应信封；没有评价时 ``item=null``。
+         */
+        RunFeedbackOut: {
+            item: components["schemas"]["FeedbackOut"] | null;
         };
         /** RunPage */
         RunPage: {
@@ -15039,6 +15116,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_run_feedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 运行 id */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RunFeedbackOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RUN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RUN_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_put_run_feedback: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 运行 id */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FeedbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：RUN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "RUN_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
                 };
             };
             /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
