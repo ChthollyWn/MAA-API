@@ -133,7 +133,6 @@ class EvalRun(SQLModel, table=True):
         Index("ix_eval_run_suite_finished_at", "suite", "finished_at"),
     )
 
-
 class EvalCaseResult(SQLModel, table=True):
     """一个评测用例的判分快照（M99 规格 §4.1）；不存 observation 明细。"""
 
@@ -174,9 +173,6 @@ class EvalCaseResult(SQLModel, table=True):
         {"sqlite_autoincrement": True},
     )
 
-
-`EvalCaseResult` 与 `RunFeedback` 的四个 NOT NULL JSON 列（`metrics`、`tags`、`graders`、`reasons`）在模型里必须显式 `nullable=False`：`json_column()` 缺省是 `nullable=True`，漏写会让 `SQLModel.metadata.create_all` 建的库与迁移不一致（Task 2 复审修订）。
-
 class RunFeedback(SQLModel, table=True):
     """用户对一次运行的评价（M99 规格 §4.1）；一次运行至多一条，重复提交覆盖。"""
 
@@ -197,6 +193,8 @@ class RunFeedback(SQLModel, table=True):
     )
 ```
 
+`EvalCaseResult` 与 `RunFeedback` 的四个 NOT NULL JSON 列（`metrics`、`tags`、`graders`、`reasons`）在模型里必须显式 `nullable=False`：`json_column()` 缺省是 `nullable=True`，漏写会让 `SQLModel.metadata.create_all` 建的库与迁移不一致（Task 2 复审修订）。
+
 迁移 `upgrade()` 的三段与模型逐列一致：`op.create_table("eval_run", ...)`（`sa.String(length=N)`、`sa.Integer`、`sa.Float`、`sa.DateTime`、`sa.JSON`，`PrimaryKeyConstraint` 显式命名 `pk_eval_run`，`sqlite_autoincrement` 不适用字符串主键）、`op.create_table("eval_case_result", ...)`（`sa.PrimaryKeyConstraint("id", name="pk_eval_case_result")`、自增、`UniqueConstraint(..., name="uq_eval_case_result_run_scenario_attempt_variant")`、外键 `fk_eval_case_result_eval_run_id_eval_run` CASCADE）、`op.create_table("run_feedback", ...)`（`sa.PrimaryKeyConstraint("id", name="pk_run_feedback")`、自增、`sa.UniqueConstraint("run_id", name="uq_run_feedback_run_id")`、外键 `fk_run_feedback_run_id_agent_run` CASCADE），最后建 5 条索引 `ix_eval_run_finished_at`、`ix_eval_run_suite_finished_at`、`ix_eval_case_result_eval_run_id`、`ix_eval_case_result_scenario`、`ix_run_feedback_created_at`；`downgrade()` 反序 drop 索引与表。
 
 **枚举**追加到 `maa_api/domain/enums.py`（同步 [03 §13](../03-数据模型.md) 与 `tests/domain/test_enums.py` 的 `EXPECTED_VALUES`）：
@@ -211,11 +209,9 @@ class MetricId(StrEnum):
     USER_SATISFACTION = "user_satisfaction"
     COST = "cost"
 
-
 class MetricScope(StrEnum):
     OFFLINE = "offline"
     ONLINE = "online"
-
 
 class EvidenceGrade(StrEnum):
     MEASURED = "measured"          # 确定性断言 / 账本数据
@@ -223,19 +219,16 @@ class EvidenceGrade(StrEnum):
     PROXY = "proxy"                # 代理值，如注入防护命中次数
     UNAVAILABLE = "unavailable"    # 当前没有数据源
 
-
 class EvalRunMode(StrEnum):
     REPLAY = "replay"
     RECORD = "record"
     LIVE = "live"
-
 
 class EvalCaseStatus(StrEnum):
     PASSED = "passed"
     FAILED = "failed"
     ERROR = "error"
     SKIPPED = "skipped"
-
 
 class FeedbackReason(StrEnum):
     INACCURATE = "inaccurate"
@@ -408,13 +401,11 @@ class MetricDefinitionOut(BaseModel):
     supports_trend: bool
     supports_breakdown: bool
 
-
 class SubMetricOut(BaseModel):
     label: str
     value: float | None
     unit: str                  # ratio / micros / turns / count / percent
     sample_size: int
-
 
 class MetricCardOut(BaseModel):
     id: MetricId
@@ -430,13 +421,11 @@ class MetricCardOut(BaseModel):
     updated_at: str | None     # 数据覆盖到的最近时间，Z 时间
     secondary: list[SubMetricOut]
 
-
 class OverviewOut(BaseModel):
     window_days: int
     generated_at: str
     items: list[MetricCardOut]
     warnings: list[str]        # 币种不一致、样本不足、能力指标没有 record/live 数据等
-
 
 class TrendPointOut(BaseModel):
     date: str                  # YYYY-MM-DD（UTC 日）
@@ -445,13 +434,11 @@ class TrendPointOut(BaseModel):
     ci_low: float | None
     ci_high: float | None
 
-
 class TrendOut(BaseModel):
     metric: MetricId
     scope: MetricScope
     unit: str
     points: list[TrendPointOut]
-
 
 class BreakdownItemOut(BaseModel):
     key: str
@@ -461,13 +448,11 @@ class BreakdownItemOut(BaseModel):
     ci_low: float | None
     ci_high: float | None
 
-
 class BreakdownOut(BaseModel):
     metric: MetricId
     dimension: str             # 固定 "ticket_kind"
     items: list[BreakdownItemOut]
     truncated: bool
-
 
 class EvalRunSummaryOut(BaseModel):
     id: str
@@ -486,13 +471,11 @@ class EvalRunSummaryOut(BaseModel):
     cost_micros: int
     currency: str | None
 
-
 class EvalRunPage(BaseModel):
     items: list[EvalRunSummaryOut]
     total: int
     page: int
     size: int
-
 
 class EvalMetricRateOut(BaseModel):
     metric: MetricId
@@ -501,7 +484,6 @@ class EvalMetricRateOut(BaseModel):
     rate: float | None
     ci_low: float | None
     ci_high: float | None
-
 
 class EvalCaseOut(BaseModel):
     scenario: str
@@ -520,18 +502,15 @@ class EvalCaseOut(BaseModel):
     graders: list[dict[str, Any]]    # 每条 {grader,status,score,details}，details 最多 5 条、每条截 256 字
     error: str | None
 
-
 class EvalRunDetailOut(EvalRunSummaryOut):
     metric_rates: list[EvalMetricRateOut]
     cases: list[EvalCaseOut]
     cases_truncated: bool      # 超过 500 条时为 true
 
-
 class FeedbackIn(BaseModel):
     rating: int = Field(ge=1, le=5)
     reasons: list[FeedbackReason] = Field(default_factory=list, max_length=5)
     comment: str | None = Field(default=None, max_length=500)
-
 
 class FeedbackOut(BaseModel):
     id: int
@@ -542,7 +521,6 @@ class FeedbackOut(BaseModel):
     created_at: str
     updated_at: str
 
-
 class InsightFeedbackItemOut(BaseModel):
     id: int
     run_id: str
@@ -552,7 +530,6 @@ class InsightFeedbackItemOut(BaseModel):
     reasons: list[FeedbackReason]
     comment: str | None
     created_at: str
-
 
 class FeedbackDigestOut(BaseModel):
     window_days: int
