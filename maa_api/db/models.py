@@ -2693,9 +2693,13 @@ class EvalCaseResult(SQLModel, table=True):
     title: str = Field(max_length=64)
     suite: str = Field(max_length=16)
     agent: str = Field(max_length=32)
-    metrics: list[str] = Field(default_factory=list, sa_column=json_column("metrics"))
+    metrics: list[str] = Field(
+        default_factory=list, sa_column=json_column("metrics", nullable=False)
+    )
     #: 场景 tags 快照（`safety-attack` / `safety-control` 等，看板分组用）。
-    tags: list[str] = Field(default_factory=list, sa_column=json_column("tags"))
+    tags: list[str] = Field(
+        default_factory=list, sa_column=json_column("tags", nullable=False)
+    )
     status: str = Field(max_length=16)           # EvalCaseStatus
     score: float | None = Field(default=None)
     attempt: int = Field(default=1)
@@ -2709,7 +2713,7 @@ class EvalCaseResult(SQLModel, table=True):
     cost_micros: int = Field(default=0)
     currency: str | None = Field(default=None, max_length=8)
     graders: list[dict[str, Any]] = Field(
-        default_factory=list, sa_column=json_column("graders")
+        default_factory=list, sa_column=json_column("graders", nullable=False)
     )
     error: str | None = Field(default=None, sa_column=text_column("error"))
     created_at: datetime = Field(
@@ -2737,7 +2741,9 @@ class RunFeedback(SQLModel, table=True):
         foreign_key="agent_run.id", ondelete="CASCADE", max_length=36
     )
     rating: int = Field(ge=1, le=5)
-    reasons: list[str] = Field(default_factory=list, sa_column=json_column("reasons"))
+    reasons: list[str] = Field(
+        default_factory=list, sa_column=json_column("reasons", nullable=False)
+    )
     comment: str | None = Field(default=None, max_length=500)
     created_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("created_at")
