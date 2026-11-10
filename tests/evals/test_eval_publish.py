@@ -96,6 +96,7 @@ def _case(scenario_id: str = "demo", **overrides: Any) -> CaseResult:
 def _suite(
     cases: list[CaseResult],
     *,
+    repeat: int = 1,
     started_at: str = STARTED_AT,
     finished_at: str = FINISHED_AT,
 ) -> SuiteResult:
@@ -111,7 +112,7 @@ def _suite(
             "model": "eval-model",
             "judge_model": "eval-model",
         },
-        repeat=1,
+        repeat=repeat,
         filters={"scenario": ["demo"]},
         target=None,
         baseline=None,
@@ -213,6 +214,36 @@ def test_publish_is_idempotent(tmp_path: Path) -> None:
     assert _counts(db_url) == (1, 1)
     _, cases = _read_run(db_url)
     assert [case.scenario for case in cases] == ["demo"]
+
+
+def test_publish_keeps_multiple_attempts_of_the_same_scenario(
+    tmp_path: Path,
+) -> None:
+    """``repeat>1`` 时同一场景的多个 attempt 各写一行，重复发布不合并。"""
+    db_url = _db_url(tmp_path)
+    result = _suite(
+        [_case("demo", attempt=1), _case("demo", attempt=2)],
+        repeat=2,
+    )
+    scenarios = {"demo": _scenario()}
+
+    publish_suite_result(result, scenarios, db_url=db_url)
+
+    assert _counts(db_url) == (1, 2)
+    run, cases = _read_run(db_url)
+    assert run is not None
+    assert run.total == 2
+    assert [(case.scenario, case.attempt) for case in cases] == [
+        ("demo", 1),
+        ("demo", 2),
+    ]
+    assert len({case.attempt for case in cases}) == 2
+
+    # 同一 result 再发布一次：先删后写，两个 attempt 仍各一行。
+    publish_suite_result(result, scenarios, db_url=db_url)
+    assert _counts(db_url) == (1, 2)
+    _, cases = _read_run(db_url)
+    assert [case.attempt for case in cases] == [1, 2]
 
 
 def test_publish_missing_table_reports_error(tmp_path: Path) -> None:
