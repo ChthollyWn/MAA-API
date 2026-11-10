@@ -46,7 +46,7 @@ export function MetricCard({ card, definition }: MetricCardProps) {
       </p>
 
       <p className="text-footnote tabular-nums text-muted-foreground">
-        {hasValue ? `n=${card.sample_size}` : 'n=0'}
+        n={card.sample_size}
         {ci ? ` · ${ci}` : ''}
       </p>
 
@@ -71,7 +71,7 @@ export function MetricCard({ card, definition }: MetricCardProps) {
         </dl>
       ) : null}
 
-      {!hasValue ? (
+      {card.sample_size === 0 ? (
         <p className="mt-1 break-words text-footnote text-muted-foreground">{METRIC_EMPTY_HINTS[card.id]}</p>
       ) : null}
     </article>

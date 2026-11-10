@@ -236,6 +236,23 @@ const FULL_CARDS: Json[] = [
   }),
 ]
 
+const MULTI_CURRENCY_CARDS: Json[] = FULL_CARDS.map((card) =>
+  card.id === 'cost'
+    ? metricCard({
+        id: 'cost',
+        label: '成本',
+        scope: 'online',
+        unit: 'micros',
+        value: null,
+        sample_size: 4,
+        secondary: [
+          { label: 'CNY', value: 500_000, unit: 'micros', sample_size: 3 },
+          { label: 'USD', value: 200_000, unit: 'micros', sample_size: 1 },
+        ],
+      })
+    : card,
+)
+
 const EMPTY_OFFLINE_CARDS: Json[] = [
   metricCard({
     id: 'accuracy',
@@ -425,6 +442,19 @@ describe('M99 能力效果页', () => {
 
     const effect = screen.getByRole('region', { name: '运行效果' })
     expect(within(effect).getByText('在运行详情页评价一次后用')).toBeInTheDocument()
+  })
+
+  it('keeps n and hides the acquisition hint when samples exist but value is empty', async () => {
+    insightsApi({ cards: MULTI_CURRENCY_CARDS })
+    renderPage()
+
+    const effect = await screen.findByRole('region', { name: '运行效果' })
+    const costCard = within(effect).getByRole('article', { name: '成本指标' })
+    expect(within(costCard).getByText('暂无数据')).toBeInTheDocument()
+    expect(within(costCard).getByText('n=4')).toBeInTheDocument()
+    expect(within(costCard).getByText('CNY')).toBeInTheDocument()
+    expect(within(costCard).getByText('USD')).toBeInTheDocument()
+    expect(within(costCard).queryByText('运行产生模型调用后显示')).not.toBeInTheDocument()
   })
 
   it('switches window and refetches', async () => {
