@@ -25,7 +25,7 @@
 
 ## 开工基线（Task 1 实测后回填）
 
-- `dev` 必须 = M90 合并与收口提交；Task 1 用 `git rev-parse --short dev` 与 `git log -1 --format=%H` 记录，计划与台账写这个值（写作时是 `7ae102a`）。
+- `dev` 必须 = M90 收口 + §8.185 维护性补丁（写作时 rebase 后是 `fc3c513`）；Task 1 用 `git rev-parse --short dev` 与 `git log -1 --format=%H` 记录，计划与台账写实测值。
 - `git tag -l 'v3-m68' 'v3-m69' 'v3-m87' 'v3-m90'` 四个都输出。
 - 迁移 head：`ls maa_api/db/migrations/versions | grep -E '^[0-9]{4}_' | sort | tail -1` 输出 `0042_demonstration.py`。
 - 评测 replay 基线：regression `5/5`、capability `18/18`、末行 `EVAL OK`；抄下两个结果 id。
@@ -786,7 +786,7 @@ git commit -m "feat(m99): 运行详情评价入口"
 
 - [ ] **Step 1: 按 spec §9 逐项同步文档**
 
-顺序：`03`（迁移/表/枚举/保留、M91–M98 建议号顺延）→ `04`（9 个端点、错误码、无配置变化）→ `10`（§8 指标口径，§6 场景与发布）→ `11`（导航、路由、key、管理页、文案）→ `02`（模块布局与路由清单）→ `12`（M99 行与顺序偏离）→ `13 §8.185 起` → `14` 总校（错误码 174/173、端点 200、小节计数）→ `01` → `README`/`specs/README` → 运行 `.venv/bin/python scripts/generate_api_guide.py` 重新生成 `15-开放API接入指南.md` → `config.template.yaml` 确认。
+顺序：`03`（迁移/表/枚举/保留、M91–M98 建议号顺延）→ `04`（9 个端点、错误码、无配置变化）→ `10`（§8 指标口径，§6 场景与发布）→ `11`（导航、路由、key、管理页、文案）→ `02`（模块布局与路由清单）→ `12`（M99 行与顺序偏离）→ `13 §8.186 起` → `14` 总校（错误码 174/173、端点 200、小节计数）→ `01` → `README`/`specs/README` → 运行 `.venv/bin/python scripts/generate_api_guide.py` 重新生成 `15-开放API接入指南.md` → `config.template.yaml` 确认。
 
 - [ ] **Step 2: 跑 §7 全部验收**
 
@@ -819,7 +819,7 @@ Expected: 全 `0`；frontend_smoke 与 agent_smoke 末行 `SMOKE OK`；评测 `5
 git add docs/v3 web/openapi.json web/src/types/api.d.ts
 git commit -m "docs(m99): 契约同步、台账与状态更新"
 git checkout dev
-git merge --no-ff capability-insights -m "merge: 能力效果看板（M99，见 docs/v3/13 §8.185 起）"
+git merge --no-ff capability-insights -m "merge: 能力效果看板（M99，见 docs/v3/13 §8.186 起）"
 git tag v3-m99
 git branch -d capability-insights
 git status -sb
@@ -854,7 +854,7 @@ git status -sb
 ## Rulings I made
 - （实现细节自行裁决的条目）
 
-## 偏离（已记 13 §8.185 起）
+## 偏离（已记 13 §8.186 起）
 - M99 先于 M91 执行，迁移号 0043；M91–M98 建议号顺延。
 - 评测场景 23 → 31；capability 基线 18/18 → 26/26。
 - 没有模型 key，未跑 capability live；以 replay 与既有台账基线为准。

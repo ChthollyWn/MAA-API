@@ -11,7 +11,7 @@
 | # | 检查什么 | 命令 | 期望 |
 |---|---|---|---|
 | 1 | 在分支上、工作区干净 | `git status -sb` | 第一行 `## capability-insights`，没有其他行 |
-| 2 | 基点与依赖 | `git rev-parse --short dev HEAD`；`git tag -l 'v3-m68' 'v3-m69' 'v3-m87' 'v3-m90'` | 两行相同；四个 tag 都输出；`dev` 最新提交是 M90 合并与收口（当前 `7ae102a`） |
+| 2 | 基点与依赖 | `git rev-parse --short dev HEAD`；`git tag -l 'v3-m68' 'v3-m69' 'v3-m87' 'v3-m90'` | 两行相同；四个 tag 都输出；`dev` 最新提交是 M90 收口 + 维护性补丁 §8.185（当前 `fc3c513`） |
 | 3 | 迁移 head | `ls maa_api/db/migrations/versions \| grep -E '^[0-9]{4}_' \| sort \| tail -1` | `0042_demonstration.py`；本里程碑取 `0043_capability_insights` |
 | 4 | 评测场景基线 | `ls tests/evals/scenarios/*.yaml \| wc -l` | `23`（regression 5、capability 18） |
 | 5 | replay 基线 | `.venv/bin/python scripts/agent_eval.py --suite all --mode replay > /tmp/m99-eval-base.log 2>&1; echo $?; tail -n 4 /tmp/m99-eval-base.log` | `0`；`regression replay：5/5 通过`、`capability replay：18/18 通过`、末行 `EVAL OK`；抄下两个结果 id 进台账 |
@@ -27,7 +27,7 @@
 | 15 | 验证证据可读 | `grep -n "verdict" maa_api/agent/workers/verification.py \| head -3`；`grep -n "def report_details\|def merge_verification" maa_api/agent/workers/verification.py` | 各有匹配；`details["verification"].method` 取值 `not_required`、`machine`、`verifier`、`waiver` |
 | 16 | 前端现状 | `grep -n "insights\|evals" web/src/routes/router.tsx web/src/components/layout/nav.ts` | 无输出；`grep -n '"echarts"' web/package.json` 输出 1 行 |
 | 17 | OpenAPI 与生成类型是当前值 | `.venv/bin/python scripts/dump_openapi.py --check; echo $?`；`cd web && pnpm gen:api:check; echo $?; cd ..` | 两个 `0` |
-| 18 | 决策记录尾部编号 | `grep -n "^### 8.18[4-9]" docs/v3/13-决策记录.md` | 现有最后一条是 §8.184；本里程碑实施后接 §8.185 起 |
+| 18 | 决策记录尾部编号 | `grep -n "^### 8.18[4-9]" docs/v3/13-决策记录.md` | 现有最后一条是 §8.185（指挥台滚动修复维护性补丁）；本里程碑实施后接 §8.186 起 |
 | 19 | 全量测试基线 | `.venv/bin/python -m pytest -q > /tmp/m99-pytest-dev.log 2>&1; echo $?; tail -n 3 /tmp/m99-pytest-dev.log` | `0`（或记录已知失败，合并后不新增失败） |
 
 第 3、6–10 条的数字随前序里程碑变化：以 Task 0 实测为准，spec 预算与实测不同只记录、不视为停止条件。第 5 条失败说明评测基线已坏，先报告，不要在本里程碑里修评测。
@@ -72,7 +72,7 @@ M68 建了 trace 与离线评测底座，M87 给 `daily_ops`/`copilot` 的 ready
 - [04 §2.5、§5、§6](../04-接口与事件协议.md)：M86–M98 端点表、错误码表、配置项总表。
 - [11 §2.2、§2.3、§6.3、§9、§11](../11-前端指挥台.md)：导航分组、路由表、query key 说明、管理页清单与文案。
 - [14 §4、§6.15](../14-现行接口清单.md)：错误码计数与 agent 小节的路由清单。
-- [13 §8.179](../13-决策记录.md)：维护性补丁的规格/计划/台账写法；[13 §8.184](../13-决策记录.md) 是当前最后一条。
+- [13 §8.179](../13-决策记录.md)：维护性补丁的规格/计划/台账写法；[13 §8.185](../13-决策记录.md) 是当前最后一条。
 
 代码入口（行号会漂移，用符号名定位）：
 
@@ -810,7 +810,7 @@ runFeedback: (runId: string) => [...root, 'agent', 'runs', 'detail', runId, 'fee
 
 ### T12 文档同步、验收与合并
 - 写范围：`docs/v3/01-总览与范围.md`、`docs/v3/03-数据模型.md`、`docs/v3/04-接口与事件协议.md`、`docs/v3/10-可观测与评测.md`、`docs/v3/11-前端指挥台.md`、`docs/v3/12-实施路线与里程碑.md`、`docs/v3/13-决策记录.md`、`docs/v3/14-现行接口清单.md`、`docs/v3/README.md`、`docs/v3/specs/README.md`、`docs/v3/specs/todo/README.md`（如需要）、`web/openapi.json`、`web/src/types/api.d.ts`、`config.template.yaml`（无变化也确认）、新建 `docs/v3/ledgers/m99-capability-insights.md`
-- 步骤：按 §9 逐项同步；跑 §7 全部验收；`git diff --check`；写台账（做了什么、验证证据、Rulings、偏离、遗留）；`git merge --no-ff capability-insights -m "merge: 能力效果看板（M99，见 docs/v3/13 §8.185 起）"`；打 tag `v3-m99`；删分支；合并后在 `dev` 复跑 §7 关键项。
+- 步骤：按 §9 逐项同步；跑 §7 全部验收；`git diff --check`；写台账（做了什么、验证证据、Rulings、偏离、遗留）；`git merge --no-ff capability-insights -m "merge: 能力效果看板（M99，见 docs/v3/13 §8.186 起）"`；打 tag `v3-m99`；删分支；合并后在 `dev` 复跑 §7 关键项。
 - 验证：§7 全表通过；`git status -sb` 干净。
 - 完成判据：12 §4 十条全部满足；spec 与实现无冲突或已在 13 §8 记录。
 
@@ -882,7 +882,7 @@ runFeedback: (runId: string) => [...root, 'agent', 'runs', 'detail', runId, 'fee
 | [12 §1、§2、§3](../12-实施路线与里程碑.md) | 阶段与里程碑清单加 M99（P5 之后追加；注明先于 M91 执行时是顺序偏离）；分支/tag 规则照旧 |
 | [02 §4.1、§4.2](../02-系统架构.md) | 后端模块布局加 `maa_api/services/insights/` 与 `evaluation publish`；路由清单加 `insights.py`；前端 features 加 `insights/` |
 | [15-开放API接入指南](../15-开放API接入指南.md) | 由 `.venv/bin/python scripts/generate_api_guide.py` 重新生成；`--check` 通过（§4 错误码表来源） |
-| [13 §8](../13-决策记录.md) | 实施记录 §8.185 起：口径裁决、迁移号顺延、场景数变化、未跑 live 的降级 |
+| [13 §8](../13-决策记录.md) | 实施记录 §8.186 起：口径裁决、迁移号顺延、场景数变化、未跑 live 的降级 |
 | [14 §4、§6](../14-现行接口清单.md) | 错误码表 +1 与「共 174 条」；§6 总数 191 → 200；§6.15 agent 表加 9 行与小节计数 |
 | [docs/v3/README.md](../README.md)、[specs/README.md](./README.md) | 文档索引与 spec 清单加入 M99；specs/README 的「执行队列」写法更新 |
 | `config.template.yaml` | 无变化（确认不出现新键） |
