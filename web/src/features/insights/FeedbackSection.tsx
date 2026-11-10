@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { toApiError } from '@/api/errors'
 import { Button } from '@/components/ui/button'
@@ -36,7 +36,7 @@ interface FeedbackFormProps {
   feedback: FeedbackView | null
 }
 
-/** 评价表单：只在读取结束后挂载，用已有评价做初始值，之后不再被刷新覆盖。 */
+/** 评价表单：只在读取成功后挂载，用已有评价做初始值，之后不再被刷新覆盖。 */
 function FeedbackForm({ runId, feedback }: FeedbackFormProps) {
   const [rating, setRating] = useState(() => (feedback ? String(feedback.rating) : ''))
   const [reasons, setReasons] = useState<ReadonlySet<FeedbackReason>>(() => new Set(feedback?.reasons ?? []))
@@ -127,25 +127,27 @@ function FeedbackForm({ runId, feedback }: FeedbackFormProps) {
 export function FeedbackSection({ runId }: { runId: string }) {
   const feedback = useQuery(runFeedbackQueryOptions(runId))
 
+  // 失败时不挂表单：表单的初始值只在挂载时读一次，重试成功也不会回填，
+  // 用户接着提交就会覆盖一条自己没见过的评价。读取失败只显示错误与重试。
+  let body: ReactNode
+  if (feedback.data !== undefined) {
+    body = <FeedbackForm key={runId} runId={runId} feedback={feedback.data.item} />
+  } else if (feedback.error && !feedback.isFetching) {
+    body = (
+      <InlineAlert
+        tone="danger"
+        action={<Button variant="outline" size="sm" onClick={() => void feedback.refetch()}>重试</Button>}
+      >
+        读取评价失败：{queryError(feedback.error)}
+      </InlineAlert>
+    )
+  } else {
+    body = <LoadingState label="正在读取评价…" />
+  }
+
   return (
     <Section id="run-feedback" title="这次运行怎么样">
-      <div className="rounded-xl border bg-card p-4 shadow-card">
-        {feedback.isPending ? (
-          <LoadingState label="正在读取评价…" />
-        ) : (
-          <div className="space-y-4">
-            {feedback.error ? (
-              <InlineAlert
-                tone="danger"
-                action={<Button variant="outline" size="sm" onClick={() => void feedback.refetch()}>重试</Button>}
-              >
-                读取评价失败：{queryError(feedback.error)}
-              </InlineAlert>
-            ) : null}
-            <FeedbackForm key={runId} runId={runId} feedback={feedback.data?.item ?? null} />
-          </div>
-        )}
-      </div>
+      <div className="rounded-xl border bg-card p-4 shadow-card">{body}</div>
     </Section>
   )
 }

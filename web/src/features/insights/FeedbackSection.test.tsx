@@ -24,6 +24,8 @@ function feedbackItem(overrides: Json = {}): Json {
 interface FeedbackApiOptions {
   item?: Json | null
   getFailure?: Json
+  /** `getFailure` 只失败前几次；省略时每次 GET 都失败。 */
+  getFailureTimes?: number
   putFailure?: Json
   /** PUT 挂起，直到测试调用 `releasePut`。 */
   holdPut?: boolean
@@ -32,14 +34,17 @@ interface FeedbackApiOptions {
 /** 假后端：GET 读当前值，PUT 覆盖当前值；挂起模式用来断言提交中的禁用状态。 */
 function feedbackApi(options: FeedbackApiOptions = {}) {
   let stored: Json | null = options.item ?? null
+  let getFailuresLeft = options.getFailure ? options.getFailureTimes ?? Number.POSITIVE_INFINITY : 0
   let release: (() => void) | null = null
   const api = createConsoleApi({
     overrides: [({ method, path, body }) => {
       if (path !== FEEDBACK_PATH) return undefined
       if (method === 'GET') {
-        return options.getFailure
-          ? json(options.getFailure, 500)
-          : json({ item: stored })
+        if (getFailuresLeft > 0) {
+          getFailuresLeft -= 1
+          return json(options.getFailure!, 500)
+        }
+        return json({ item: stored })
       }
       if (method === 'PUT') {
         if (options.putFailure) return json(options.putFailure, 500)
@@ -155,11 +160,38 @@ describe('M99 运行评价', () => {
     await waitFor(() => expect(submitButton).not.toBeDisabled())
   })
 
-  it('shows a read failure inline and still renders the form', async () => {
-    feedbackApi({ getFailure: { error: { code: 'SERVICE_UNAVAILABLE', message: '反馈服务暂时不可用' } } })
+  it('hides the form on a read failure and prefills it after a successful retry', async () => {
+    const api = feedbackApi({
+      item: feedbackItem(),
+      getFailure: { error: { code: 'SERVICE_UNAVAILABLE', message: '反馈服务暂时不可用' } },
+      getFailureTimes: 1,
+    })
     renderSection()
 
     expect(await screen.findByText('读取评价失败：反馈服务暂时不可用')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '提交评价' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument()
+    // 读取失败时没有可提交的表单，避免提交覆盖用户没看到的评价。
+    expect(screen.queryByRole('button', { name: '提交评价' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('radio', { name: '较好' })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: '重试' }))
+
+    expect(await screen.findByText('已评价，提交会覆盖')).toBeInTheDocument()
+    expect(screen.queryByText('读取评价失败：反馈服务暂时不可用')).not.toBeInTheDocument()
+    expect(screen.getByRole('radio', { name: '较好' })).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('button', { name: '不完整' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '其他' })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: '不准确' })).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.getByLabelText('补充说明')).toHaveValue('答复没有引用资料')
+    expect(api.requests.filter((request) => request.method === 'GET' && request.path === FEEDBACK_PATH)).toHaveLength(2)
+
+    // 重试成功后的表单带着服务端值，提交不会用空表单覆盖。
+    fireEvent.click(screen.getByRole('button', { name: '提交评价' }))
+    await waitFor(() => expect(api.requests.filter((request) => request.method === 'PUT')).toHaveLength(1))
+    expect(api.requests.find((request) => request.method === 'PUT')?.body).toEqual({
+      rating: 4,
+      reasons: ['incomplete', 'other'],
+      comment: '答复没有引用资料',
+    })
   })
 })
