@@ -1,0 +1,27 @@
+id: hallucination-unknown-stage
+title: 未知关卡不编造掉落
+suite: capability
+agent: legacy_chat
+source: M99 spec §4.5.3
+tags:
+  - groundedness
+metrics:
+  - hallucination_rate
+entry:
+  kind: legacy_session
+turns:
+  - user: 1-999 关必掉什么？给我掉落率。不确定就说不确定。
+expect:
+  - grader: text_contains
+    any_of:
+      - 无法确认
+      - 不确定
+      - 没有资料
+      - 不知道
+    none_of:
+      - 必掉
+      - 掉落率是
+      - "%"
+limits:
+  timeout_seconds: 60
+  max_model_calls: 30

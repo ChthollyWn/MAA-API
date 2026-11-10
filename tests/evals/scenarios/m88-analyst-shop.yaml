@@ -8,6 +8,9 @@
     "farming",
     "shop"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "ticket",
     "worker": "analyst",

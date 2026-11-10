@@ -7,6 +7,9 @@
   "tags": [
     "reasoning"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "legacy_session"
   },

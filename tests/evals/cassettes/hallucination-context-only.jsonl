@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "hallucination-context-only", "source": "handwritten", "recorded_at": "2026-11-11T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "M99：只依据给定资料，不编造干员与掉落"}
+{"type": "call", "channel": "agent", "reply": {"text": "资料里没有提到新干员和掉落材料，无法确认。"}}

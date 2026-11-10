@@ -8,6 +8,9 @@
     "gate",
     "copilot"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "ticket",
     "worker": "copilot",

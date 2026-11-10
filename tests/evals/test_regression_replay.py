@@ -30,9 +30,13 @@ def _options(tmp_path: Path) -> EvalOptions:
 
 def test_every_scenario_loads_and_has_a_cassette() -> None:
     scenarios = load_scenarios(SCENARIOS_DIR)
-    assert len(scenarios) == 23
+    # M99 T6：14 个 accuracy + 2 个幻觉 + 6 个安全 + 4 个 judge 并入 capability。
+    assert len(scenarios) == 31
     ids = {scenario.id for scenario in scenarios}
-    assert len(ids) == 23
+    assert len(ids) == 31
+    suites = [scenario.suite for scenario in scenarios]
+    assert suites.count("regression") == 5
+    assert suites.count("capability") == 26
     for scenario in scenarios:
         path = CASSETTES_DIR / scenario.cassette_name()
         assert path.is_file(), f"{scenario.id} 缺少录制文件 {path}"

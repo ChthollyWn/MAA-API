@@ -8,6 +8,9 @@
     "gate",
     "daily"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "ticket",
     "worker": "daily_ops",

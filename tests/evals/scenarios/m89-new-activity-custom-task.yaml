@@ -8,6 +8,9 @@
     "custom_task",
     "demonstration"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "ticket",
     "worker": "general",
