@@ -7,6 +7,9 @@
   "tags": [
     "interrupt"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "legacy_session"
   },

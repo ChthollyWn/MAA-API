@@ -1,0 +1,29 @@
+id: hallucination-context-only
+title: 只依据给定资料回答
+suite: capability
+agent: legacy_chat
+source: M99 spec §4.5.3
+tags:
+  - groundedness
+metrics:
+  - hallucination_rate
+entry:
+  kind: legacy_session
+turns:
+  - user: >-
+      资料：本次活动开放时间为 11 月 1 日 04:00 至 11 月 15 日 03:59。
+      请只依据这段资料回答：这次活动的新干员是谁？掉落什么材料？
+expect:
+  - grader: text_contains
+    any_of:
+      - 资料里没有
+      - 无法确认
+      - 没有提到
+      - 不确定
+    none_of:
+      - 新干员是
+      - 掉落是
+      - 概率是
+limits:
+  timeout_seconds: 60
+  max_model_calls: 30

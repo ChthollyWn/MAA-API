@@ -110,6 +110,10 @@ BUSINESS_TABLES = {
     "nav_edge",
     # M89：示教录制一行一次（v3 specs/m89 §4.1、docs/v3/03 §12）。
     "demonstration",
+    # M99：能力效果看板三表（v3 specs/m99 §4.1、docs/v3/03 §12）。
+    "eval_run",
+    "eval_case_result",
+    "run_feedback",
 }
 UUID_PK_TABLES = [
     "pipeline",
@@ -169,6 +173,9 @@ AUTOINCREMENT_TABLES = [
     "watchdog_alert",
     # M85：发件箱只增不删，整数自增主键（spec §4.1）。
     "outbox",
+    # M99：用例结果与运行评价都是高频追加表（spec §4.1）。
+    "eval_case_result",
+    "run_feedback",
 ]
 
 # §6 索引清单：名字 → (表, 列序, 是否唯一)。列序=等值→范围→排序，照抄不重排。
@@ -393,6 +400,16 @@ EXPECTED_INDEXES = {
         ("from_node", "to_node", "action_hash"),
         True,
     ),
+    # M99：评测列表按完成时间倒序；套件过滤走复合索引（spec §4.1）。
+    "ix_eval_run_finished_at": ("eval_run", ("finished_at",), False),
+    "ix_eval_run_suite_finished_at": ("eval_run", ("suite", "finished_at"), False),
+    "ix_eval_case_result_eval_run_id": (
+        "eval_case_result",
+        ("eval_run_id",),
+        False,
+    ),
+    "ix_eval_case_result_scenario": ("eval_case_result", ("scenario",), False),
+    "ix_run_feedback_created_at": ("run_feedback", ("created_at",), False),
 }
 
 # §5 唯一约束：名字 → (表, 列)
@@ -426,6 +443,12 @@ EXPECTED_UNIQUE_CONSTRAINTS = {
     ),
     # M85：发件箱按去重键唯一，重复入队返回旧行（spec §4.5）。
     "uq_outbox_dedupe_key": ("outbox", ("dedupe_key",)),
+    # M99：一次评测里同一场景的同一 attempt/variant 只落一行；一次运行至多一条评价。
+    "uq_eval_case_result_run_scenario_attempt_variant": (
+        "eval_case_result",
+        ("eval_run_id", "scenario", "attempt", "variant"),
+    ),
+    "uq_run_feedback_run_id": ("run_feedback", ("run_id",)),
 }
 
 # 外键级联：列 → ondelete（docs/04 §3.4）
@@ -457,6 +480,9 @@ EXPECTED_FK_CASCADE = {
     # M86：节点删了，挂在它两端的跳转一起删（spec §4.1）。
     ("nav_edge", "from_node"),
     ("nav_edge", "to_node"),
+    # M99：评测删了用例一起删；运行删了评价一起删（spec §4.1）。
+    ("eval_case_result", "eval_run_id"),
+    ("run_feedback", "run_id"),
 }
 EXPECTED_FK_SET_NULL = {
     ("pipeline", "schedule_id"),
@@ -583,6 +609,8 @@ EXPECTED_TEXT_COLUMNS = {
     ("watchdog_alert", "message"),
     # M85：发件箱最后一次失败原因长度不定，用 TEXT。
     ("outbox", "last_error"),
+    # M99：用例错误描述长度不定，用 TEXT（spec §4.1）。
+    ("eval_case_result", "error"),
 }
 
 EXPECTED_JSON_COLUMNS = {
@@ -666,6 +694,15 @@ EXPECTED_JSON_COLUMNS = {
     # M89：示教步骤数组与转换后的自定义任务链记录（spec §4.1）。
     ("demonstration", "steps"),
     ("demonstration", "converted_to"),
+    # M99：评测的 git/model/filters 快照、用例的 metrics/tags/graders 与评价原因
+    # （spec §4.1）。
+    ("eval_run", "git"),
+    ("eval_run", "model"),
+    ("eval_run", "filters"),
+    ("eval_case_result", "metrics"),
+    ("eval_case_result", "tags"),
+    ("eval_case_result", "graders"),
+    ("run_feedback", "reasons"),
 }
 
 # FTS5 对象不属于 SQLModel 元数据，也不属于业务表：``create_all`` 路径由
@@ -746,8 +783,8 @@ def make_pipeline(session: Session, **kwargs) -> models.Pipeline:
 # ---------------------------------------------------------------------------
 # 表集合与主键形态
 # ---------------------------------------------------------------------------
-def test_metadata_has_exactly_58_business_tables():
-    """58 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
+def test_metadata_has_exactly_61_business_tables():
+    """61 张业务表；alembic_version 由 Alembic 维护，FTS 对象与影子表不计入。"""
     assert set(MD.tables) == BUSINESS_TABLES
     # 排除的办法就是不把 FTS 对象放进元数据：迁移比对只遍历这个集合。
     fts_names = set(FTS_OBJECTS) | FTS_SHADOW_TABLES
@@ -903,7 +940,7 @@ def test_check_constraint_follows_naming_convention():
 # 索引与唯一约束（docs/04 §6）
 # ---------------------------------------------------------------------------
 def test_index_inventory_matches_spec_exactly():
-    """64 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
+    """69 条索引逐条核对名字、表、列序、唯一性；且没有多建任何一条。"""
     actual = {}
     for table in MD.tables.values():
         for index in table.indexes:

@@ -11,7 +11,8 @@ import pytest
 
 from maa_api.domain import enums
 
-# docs/04 §4 代码块的逐字快照：{枚举名: {成员名: 取值}}。
+# 取值快照：docs/04 §4 代码块 + v3 specs/m99 §4.1（M99 六个枚举）。
+# 结构：{枚举名: {成员名: 取值}}。
 EXPECTED_VALUES = {
     "PipelineStatus": {
         "PENDING": "pending",
@@ -454,6 +455,44 @@ EXPECTED_VALUES = {
         "RECORDED": "recorded",
         "CONVERTED": "converted",
         "DISCARDED": "discarded",
+    },
+    # M99：能力效果看板的六个枚举（v3 specs/m99 §4.1）。
+    "MetricId": {
+        "ACCURACY": "accuracy",
+        "TASK_COMPLETION": "task_completion",
+        "CONVERSATION_EFFICIENCY": "conversation_efficiency",
+        "HALLUCINATION_RATE": "hallucination_rate",
+        "SAFETY_RATE": "safety_rate",
+        "USER_SATISFACTION": "user_satisfaction",
+        "COST": "cost",
+    },
+    "MetricScope": {
+        "OFFLINE": "offline",
+        "ONLINE": "online",
+    },
+    "EvidenceGrade": {
+        "MEASURED": "measured",
+        "SELF_REPORTED": "self_reported",
+        "PROXY": "proxy",
+        "UNAVAILABLE": "unavailable",
+    },
+    "EvalRunMode": {
+        "REPLAY": "replay",
+        "RECORD": "record",
+        "LIVE": "live",
+    },
+    "EvalCaseStatus": {
+        "PASSED": "passed",
+        "FAILED": "failed",
+        "ERROR": "error",
+        "SKIPPED": "skipped",
+    },
+    "FeedbackReason": {
+        "INACCURATE": "inaccurate",
+        "INCOMPLETE": "incomplete",
+        "SLOW": "slow",
+        "UNSAFE": "unsafe",
+        "OTHER": "other",
     },
 }
 

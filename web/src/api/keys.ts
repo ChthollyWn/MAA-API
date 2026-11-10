@@ -149,6 +149,20 @@ export const keys = {
       [...root, 'agent', 'demonstrations', filters ?? {}] as const,
     /** 示教列表的整片前缀：开始、停止、转换后各失效一次。 */
     demonstrationsAll: () => [...root, 'agent', 'demonstrations'] as const,
+    /** 能力效果（M99 §4.6）：整片前缀在提交评价后统一失效。 */
+    insightsAll: () => [...root, 'agent', 'insights'] as const,
+    insightsCatalog: () => [...root, 'agent', 'insights', 'catalog'] as const,
+    insightsOverview: (windowDays: number) =>
+      [...root, 'agent', 'insights', 'overview', windowDays] as const,
+    insightTrend: (metric: string, windowDays: number) =>
+      [...root, 'agent', 'insights', 'trend', metric, windowDays] as const,
+    insightBreakdown: (metric: string, windowDays: number) =>
+      [...root, 'agent', 'insights', 'breakdown', metric, windowDays] as const,
+    evalRuns: (filters?: Readonly<Record<string, unknown>>) =>
+      [...root, 'agent', 'evals', 'runs', filters ?? {}] as const,
+    evalRun: (runId: string) => [...root, 'agent', 'evals', 'runs', 'detail', runId] as const,
+    runFeedback: (runId: string) =>
+      [...root, 'agent', 'runs', 'detail', runId, 'feedback'] as const,
   },
   /** IM 通道（M85 §4.6）：四平台状态与绑定列表各自一段缓存。 */
   channels: {

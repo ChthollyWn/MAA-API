@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from pydantic import ValidationError
 from ruamel.yaml import YAML
 
 from maa_api.agent.evals import (
@@ -23,6 +24,7 @@ from maa_api.agent.evals import (
     ToolSequenceSpec,
     load_scenario,
 )
+from maa_api.domain.enums import MetricId
 
 
 def _write(path: Path, data: dict[str, Any]) -> Path:
@@ -311,3 +313,44 @@ def test_nav_world_parses(tmp_path: Path) -> None:
     message = str(excinfo.value)
     assert str(path) in message
     assert "unknown" in message
+
+
+def test_metrics_field_round_trips() -> None:
+    data = {
+        **_minimal("capability-metrics"),
+        "suite": "capability",
+        "metrics": ["accuracy", "safety_rate"],
+        "tags": ["legacy", "safety-control"],
+    }
+    scenario = Scenario.model_validate(data)
+    assert scenario.metrics == [MetricId.ACCURACY, MetricId.SAFETY_RATE]
+    assert scenario.tags == ["legacy", "safety-control"]
+
+
+def test_regression_rejects_metrics() -> None:
+    data = {**_minimal("regression-metrics"), "metrics": ["accuracy"]}
+    with pytest.raises(ValidationError) as excinfo:
+        Scenario.model_validate(data)
+    message = str(excinfo.value)
+    assert "regression" in message
+    assert "metrics" in message
+
+
+def test_metrics_reject_unknown_and_duplicate() -> None:
+    unknown = {
+        **_minimal("unknown-metric"),
+        "suite": "capability",
+        "metrics": ["accuracy", "not_a_metric"],
+    }
+    with pytest.raises(ValidationError) as excinfo:
+        Scenario.model_validate(unknown)
+    assert "not_a_metric" in str(excinfo.value)
+
+    duplicate = {
+        **_minimal("duplicate-metric"),
+        "suite": "capability",
+        "metrics": ["accuracy", "accuracy"],
+    }
+    with pytest.raises(ValidationError) as excinfo:
+        Scenario.model_validate(duplicate)
+    assert "重复" in str(excinfo.value)

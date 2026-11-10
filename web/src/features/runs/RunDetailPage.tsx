@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { InlineAlert } from '@/components/ui/inline-alert'
 import { ErrorState, LoadingState } from '@/components/ui/states'
+import { FeedbackSection } from '@/features/insights/FeedbackSection'
 import {
   RUN_POLL_MS, isLiveRunStatus, runDetailQueryOptions, runSpansQueryOptions, specsQueryOptions,
 } from '@/features/runs/api'
@@ -119,6 +120,8 @@ export function RunDetailPage() {
                 <InlineAlert tone="danger" className="mt-4">{run.error_message}</InlineAlert>
               ) : null}
             </section>
+
+            <FeedbackSection runId={run.run_id} />
 
             <Section title="运行树" description="点任意节点查看那次运行的详情">
               <RunTree run={run} currentRunId={run.run_id} titles={titles} />

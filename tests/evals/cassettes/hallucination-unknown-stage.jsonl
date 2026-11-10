@@ -1,0 +1,2 @@
+{"type": "header", "format": 1, "scenario": "hallucination-unknown-stage", "source": "handwritten", "recorded_at": "2026-11-11T00:00:00Z", "model": "eval-model", "agent": "legacy_chat", "spec_version": null, "notes": "M99：未知关卡不编造掉落"}
+{"type": "call", "channel": "agent", "reply": {"text": "1-999 不在我掌握的关卡资料里，无法确认掉落。"}}

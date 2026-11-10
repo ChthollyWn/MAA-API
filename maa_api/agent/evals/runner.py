@@ -150,6 +150,10 @@ class CaseResult:
     warnings: list[str]
     error: str | None
     detail: dict[str, Any] = field(default_factory=dict)
+    #: 场景标题与能力标签快照：发布到 ``eval_case_result`` 用（M99 §4.2 第 11 条）。
+    title: str = ""
+    metrics: list[str] = field(default_factory=list)
+    tags: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -215,6 +219,9 @@ class SuiteResult:
             "cases": [
                 {
                     "scenario": case.scenario,
+                    "title": case.title,
+                    "metrics": case.metrics,
+                    "tags": case.tags,
                     "suite": case.suite,
                     "agent": case.agent,
                     "attempt": case.attempt,
@@ -830,6 +837,9 @@ class EvalRunner:
                 warnings=[],
                 error=None,
                 detail={"reason": "missing_driver：这个入口还没有实现"},
+                title=scenario.title,
+                metrics=[str(metric) for metric in scenario.metrics],
+                tags=list(scenario.tags),
             )
 
         cassette_path = options.cassette_dir / scenario.cassette_name()
@@ -941,6 +951,9 @@ class EvalRunner:
             warnings=warnings,
             error=None,
             detail=detail,
+            title=scenario.title,
+            metrics=[str(metric) for metric in scenario.metrics],
+            tags=list(scenario.tags),
         )
         if options.mode == "record" and cassette is not None and status == "passed":
             cassette.save(cassette_path)
@@ -1042,6 +1055,9 @@ class EvalRunner:
             warnings=list(warnings),
             error=message,
             detail={"error": message},
+            title=scenario.title,
+            metrics=[str(metric) for metric in scenario.metrics],
+            tags=list(scenario.tags),
         )
 
 
@@ -1081,6 +1097,9 @@ def write_result(result: SuiteResult, out_dir: Path) -> Path:
         path = cases_dir / f"{case.scenario}-{case.attempt}{suffix}.json"
         payload = {
             "scenario": case.scenario,
+            "title": case.title,
+            "metrics": case.metrics,
+            "tags": case.tags,
             "suite": case.suite,
             "agent": case.agent,
             "attempt": case.attempt,

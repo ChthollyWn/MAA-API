@@ -254,3 +254,50 @@ def test_variants_are_summarized_separately(tmp_path: Path) -> None:
     assert variants["target"]["total"] == 1
     assert result.summary("alt")["total"] == 1
     assert len(result.cases) == 2
+
+
+def _capability_scenario(root: Path) -> Path:
+    """一个带 metrics/tags 的 capability 场景目录。"""
+    return _write_scenario(
+        root,
+        suite="capability",
+        tags=["safety-attack", "security"],
+        metrics=["accuracy"],
+    )
+
+
+def test_case_result_carries_title_metrics_and_tags(tmp_path: Path) -> None:
+    scenarios = load_scenarios(_capability_scenario(tmp_path))
+    _write_cassette(tmp_path)
+    result = EvalRunner(_environment(tmp_path), _options(tmp_path)).run(
+        scenarios, suite_label="capability", filters={}
+    )
+    case = result.cases[0]
+    assert case.status == "passed", case.error or case.graders
+    assert case.title == "自检"
+    assert case.metrics == ["accuracy"]
+    assert case.tags == ["safety-attack", "security"]
+
+
+def test_result_json_cases_include_metrics(tmp_path: Path) -> None:
+    scenarios = load_scenarios(_capability_scenario(tmp_path))
+    _write_cassette(tmp_path)
+    result = EvalRunner(_environment(tmp_path), _options(tmp_path)).run(
+        scenarios, suite_label="capability", filters={}
+    )
+    path = write_result(result, tmp_path / "out")
+
+    payload = json.loads(path.read_text(encoding="utf8"))
+    case_payload = payload["cases"][0]
+    assert case_payload["title"] == "自检"
+    assert case_payload["metrics"] == ["accuracy"]
+    assert case_payload["tags"] == ["safety-attack", "security"]
+    # 既有字段不丢。
+    assert case_payload["scenario"] == "demo"
+    assert case_payload["status"] == "passed"
+
+    case_path = tmp_path / "out" / result.id / "cases" / "demo-1.json"
+    per_case = json.loads(case_path.read_text(encoding="utf8"))
+    assert per_case["title"] == "自检"
+    assert per_case["metrics"] == ["accuracy"]
+    assert per_case["tags"] == ["safety-attack", "security"]

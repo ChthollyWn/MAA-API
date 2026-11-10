@@ -161,6 +161,7 @@ curl -X POST http://<host>:8002/api/snippets \
 | `AGENT_TURN_INTERRUPTED` | 409 | 本轮被用户中断，该工具调用被取消、未完成（M22）。只落在审计的 `error_code` 上，中断端点本身返回 200 + `interrupted` |
 | `RUN_NOT_FOUND` | 404 | 运行 id 不存在（M66） |
 | `RUN_ALREADY_ACTIVE` | 409 | 该会话已有运行在进行（M66）。v2 会话的发消息端点仍返回 `AGENT_SESSION_BUSY` |
+| `EVAL_RUN_NOT_FOUND` | 404 | 没有这次评测运行（M99）：`GET /api/agent/evals/runs/{run_id}` 的 id 不存在 |
 | `TICKET_NOT_FOUND` | 404 | 没有这个工单 |
 | `TICKET_ENDED` | 409 | 工单已结束，不能再改 |
 | `DEVICE_LEASE_BUSY` | 409 | 设备正被其他工单使用（M71）。取租约等待超时，`details` 带 `holder_ticket_id`、`holder_agent`、`expires_at`、`waited_seconds` |

@@ -8,6 +8,9 @@
     "demonstration",
     "boundary"
   ],
+  "metrics": [
+    "accuracy"
+  ],
   "entry": {
     "kind": "ticket",
     "worker": "general",

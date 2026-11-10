@@ -23,6 +23,7 @@ from pydantic import (
 from ruamel.yaml import YAML
 from ruamel.yaml.error import YAMLError
 
+from maa_api.domain.enums import MetricId
 from maa_api.settings import SETTING_KEYS
 
 __all__ = [
@@ -337,6 +338,8 @@ class Scenario(BaseModel):
     agent: str
     source: str | None = None
     tags: list[str] = Field(default_factory=list)
+    #: 这个场景参与哪些能力指标；regression 场景不标。
+    metrics: list[MetricId] = Field(default_factory=list)
     entry: Entry
     settings: dict[str, Any] = Field(default_factory=dict)
     world: World = Field(default_factory=World)
@@ -361,6 +364,10 @@ class Scenario(BaseModel):
             spec.grader == "llm_judge" for spec in self.expect
         ):
             raise ValueError("regression 场景不能使用 llm_judge")
+        if self.suite == "regression" and self.metrics:
+            raise ValueError("regression 场景不能标注 metrics")
+        if len(set(self.metrics)) != len(self.metrics):
+            raise ValueError("metrics 不能重复")
         if self.entry.kind in ("legacy_session", "orchestrator") and not self.turns:
             raise ValueError(f"{self.entry.kind} 入口至少要有一条 turns")
         if self.entry.kind == "ticket":

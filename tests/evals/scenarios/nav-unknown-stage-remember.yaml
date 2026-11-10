@@ -5,6 +5,8 @@ agent: general
 source: M86 §1 目标 4
 tags:
   - nav
+metrics:
+  - accuracy
 entry:
   kind: ticket
   worker: general

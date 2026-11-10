@@ -118,6 +118,7 @@ function baseMock(options: {
     }
     if (url.pathname === '/api/agent/runs/run-1/spans') return json(options.spans ?? rootSpans)
     if (url.pathname === '/api/agent/runs/run-2/spans') return json({ trace_id: 'run-1', truncated: false, items: rootSpans.items })
+    if (/^\/api\/agent\/runs\/[^/]+\/feedback$/.test(url.pathname)) return json({ item: null })
     if (url.pathname === '/api/agent/runs/run-1') {
       return json(options.onDetail ? options.onDetail() : options.detail ?? runDetail({}, [
         runSummary({ run_id: 'run-2', parent_run_id: 'run-1', agent_name: 'worker', kind: 'worker_turn', status: 'running', finish_reason: null, started_at: '2026-11-02T08:15:31Z', finished_at: null }),
@@ -211,6 +212,19 @@ describe('Runs page', () => {
     expect(text).not.toContain('orchestrator_turn')
     expect(text).not.toContain('worker_turn')
     expect(text).not.toContain('succeeded')
+  })
+
+  it('renders feedback section between summary and tree', async () => {
+    const { fetchMock } = baseMock()
+    renderRuns(fetchMock, '/more/runs/run-1')
+
+    const summary = await screen.findByRole('region', { name: '运行概要' })
+    const feedback = await screen.findByRole('region', { name: '这次运行怎么样' })
+    const tree = await screen.findByRole('list', { name: '运行树' })
+
+    expect(summary.compareDocumentPosition(feedback) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(feedback.compareDocumentPosition(tree) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(await within(feedback).findByRole('button', { name: '提交评价' })).toBeInTheDocument()
   })
 
   it('polls while running and stops after finish', async () => {

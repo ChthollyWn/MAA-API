@@ -52,6 +52,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--model", default=os.environ.get("MAA_EVAL_MODEL"))
     parser.add_argument("--judge-model", default=None)
     parser.add_argument("--keep-temp", action="store_true")
+    parser.add_argument(
+        "--publish",
+        action="store_true",
+        help="把结果写入应用库，供能力效果看板读取；失败只警告，不影响退出码",
+    )
     parser.add_argument("--list", action="store_true", dest="list_only")
     return parser
 
@@ -161,6 +166,18 @@ def main(argv: list[str] | None = None) -> int:
             _print_case(case)
         summary = result.summary()
         result_path = write_result(result, out_dir)
+        if args.publish:
+            from maa_api.agent.evals.publish import (
+                PublishError,
+                publish_suite_result,
+            )
+
+            try:
+                run_id = publish_suite_result(result, {s.id: s for s in selected})
+            except PublishError as exc:
+                print(f"发布失败：{exc}", file=sys.stderr)
+            else:
+                print(f"已发布 {run_id}")
         print(
             f"{suite} {args.mode}：{summary['passed']}/{summary['total']} 通过"
             f"（{summary['pass_rate'] * 100:.1f}%），结果 {result_path}"
