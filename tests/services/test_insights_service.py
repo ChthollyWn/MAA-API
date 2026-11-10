@@ -164,7 +164,7 @@ def test_offline_metrics_ignore_replay(seeded) -> None:
         assert accuracy.reading.delta == pytest.approx(2 / 3 - 1 / 4)
         assert accuracy.reading.updated_at == D1
         secondary = _secondary(accuracy)
-        assert secondary["评测用例数"].value == 3
+        assert secondary["可判定用例数"].value == 3
         assert secondary["replay 用例数"].value == 2
 
         hallucination = _card(data, MetricId.HALLUCINATION_RATE)

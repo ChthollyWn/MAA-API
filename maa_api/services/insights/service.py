@@ -932,7 +932,7 @@ class InsightsService:
         if metric is MetricId.ACCURACY:
             return (
                 SubMetric(
-                    "评测用例数",
+                    "可判定用例数",
                     float(stats.evaluable),
                     "count",
                     stats.evaluable,
