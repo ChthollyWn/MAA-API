@@ -1,6 +1,6 @@
 # M99 能力效果看板（台账）
 
-- 分支：`capability-insights`；基点：`dev` = `fc3c513`；合并提交：`<由控制器填写>`；tag：`v3-m99`（打 tag 由控制器执行）
+- 分支：`capability-insights`；基点：`dev` = `fc3c513`；合并提交：`c9f0cd7`；tag：`v3-m99`（打 tag 由控制器执行）
 - spec：[m99-capability-insights](../specs/m99-capability-insights.md)
 - 计划：[m99-capability-insights](../plans/m99-capability-insights.md)
 
@@ -11,7 +11,7 @@
 - 评测发布：`Scenario.metrics`、`CaseResult.title/metrics/tags`、`publish.py`、`scripts/agent_eval.py --publish`（幂等，失败只警告）。14 个既有 capability 场景加 `accuracy`，新增 2 个幻觉与 6 个安全场景（含 2 个对照），场景 23 → 31、capability 18 → 26。
 - 前端：`/more/insights` 能力效果页（7 张指标卡、窗口切换、趋势、按工单类型分组、离线评测、最近评价、评估方法）、`/more/evals/:runId` 评测详情页、运行详情页「这次运行怎么样」评价入口；8 个 query key、2 条路由与 agent 组导航项。
 - 契约文档：01/02/03/04/10/11/12/13/15、README 与 specs/README 同步，14 总校（174 个错误码、200 条端点、agent 小节 97 条），15 重新生成；`config.template.yaml` 无变化。
-- 整支复审 fix wave（提交 `<由控制器填写>`）：满意度与反馈摘要的回收率分子只数「评价与运行都在窗口内结束」的条数（≤100%）；`MetricCardOut` 加 `currency`，成本卡单币种时由前端显示 ¥/$；分组图用 `/api/agent/specs` 的 title 显示工单类型、不再摆 `ticket.kind` 原值；accuracy secondary 展示标签已在 `f855f24` 修正为「可判定用例数」。spec §4.3/§4.5.1/§4.5.2/§4.5.4 与 docs/10 §8 同步。
+- 整支复审 fix wave（提交 `d40c6c9`）：满意度与反馈摘要的回收率分子只数「评价与运行都在窗口内结束」的条数（≤100%）；`MetricCardOut` 加 `currency`，成本卡单币种时由前端显示 ¥/$；分组图用 `/api/agent/specs` 的 title 显示工单类型、不再摆 `ticket.kind` 原值；accuracy secondary 展示标签已在 `f855f24` 修正为「可判定用例数」。spec §4.3/§4.5.1/§4.5.2/§4.5.4 与 docs/10 §8 同步。
 
 ## 验证证据
 
@@ -32,7 +32,7 @@
 | `scripts/check_doc_links.py` | `0`，末行 `BROKEN 0` |
 | `git diff --check` | `0` |
 | 最终整支复审（HEAD `f855f24`） | Verdict **With fixes**，无 Critical；4 条 in-scope 修复项：① 满意度/反馈摘要的回收率分子可超过分母（>100%）；② 单币种成本卡不带币种符号；③「按工单类型」分组图显示原始 `ticket.kind`；④ docs/13 §8.186 与台账未随 `f855f24` 更新 |
-| 本次 fix wave（提交 `<由控制器填写>`） | 四条修复：① 回收率分子 join `agent_run`，只数「评价与运行都在窗口内结束」的条数，保证 ≤1.0；② `MetricCardOut.currency` + 前端 `formatMicros(value, currency)`，单币种显示 ¥/$、多币种保持现状，`web/openapi.json` 与 `web/src/types/api.d.ts` 已重生成；③ 分组图用 spec title 显示工单类型（找不到回退 label）；④ docs/13 §8.186 与台账校正（label 已修、incident 方向、pytest 3 条）。验证见 task-12 报告「Final-review fix wave」 |
+| 本次 fix wave（提交 `d40c6c9`） | 四条修复：① 回收率分子 join `agent_run`，只数「评价与运行都在窗口内结束」的条数，保证 ≤1.0；② `MetricCardOut.currency` + 前端 `formatMicros(value, currency)`，单币种显示 ¥/$、多币种保持现状，`web/openapi.json` 与 `web/src/types/api.d.ts` 已重生成；③ 分组图用 spec title 显示工单类型（找不到回退 label）；④ docs/13 §8.186 与台账校正（label 已修、incident 方向、pytest 3 条）。验证见 task-12 报告「Final-review fix wave」 |
 | 手工 API 验收（真实 `create_app()` TestClient + 开发库 `resource/maa_api.db`） | 见下 |
 
 手工验收（2026-11-11，命令输出在 `/tmp/m99-t12-manual.log`、`/tmp/m99-t12-manual-overview.log`）：
@@ -75,3 +75,15 @@
 - `tests/agent/test_incidents.py::test_incident_allowed_action_still_uses_confirmation_service` 在 T12 全量出现过超时；控制器复核为既有顺序/装配 flake：单测单跑通过（0.91s），仅跑 `tests/agent/test_incidents.py` 整个文件时该测超时（16 例中 1 失败，62s），最终验收全量未复现。测试源码自带 M68/M71「已知 flake」注释（确认广播与 waiter 注册的竞态），分支未改 `runtime.py`/`harness/`/该测试，与 M99 代码无关。
 - `/api/agent/runs` 的 `ticket_id` 过滤缺陷（spec §2 明确不在本里程碑修复）。
 - 未做真机/真实浏览器手工验收；前端行为由 jsdom 测试、build 与 `frontend_smoke` 覆盖。
+
+
+## Rulings I made（本次执行）
+
+- **Task 11 写范围补充 `insights/api.ts`**：计划漏列该文件；T9 已把 `runFeedbackQueryOptions`/`usePutRunFeedback` 放进 `api.ts`，允许 T11 按既有模式改它（实际 T11 未用到，T9 已含所需 hook）——若错，代价是多一个文件的小改动/审查噪音。
+- **spec 校正三处**（实现期发现文档与代码/契约不一致，按 spec 是唯一事实来源修正）：`EvalCaseResult.metrics/tags/graders` 与 `RunFeedback.reasons` 四个 JSON 列在模型里显式 `nullable=False`（c1a8d2f）；`page_runs`/`get_run` 归 `EvalRunRepository`；accuracy secondary 文案改为「可判定用例数（passed+failed）」（3abe936）。——若错，代价是后续任务按错误签名/口径实现，返工一轮。
+- **Task 12 验收发现 accuracy secondary 展示标签仍是旧值「评测用例数」**：判为 spec 偏离，派小修 `f855f24` 而不是留到后续（真实 UI 会显示旧词）。——若错，代价只是两处字符串。
+- **incident 测试失败判定**：单测单跑 0.91s 通过、仅跑该文件时 62s 超时；`runtime.py`/`harness/`/测试文件在本分支零改动 → 既有顺序/装配 flake，不修代码，记台账。若实际是本分支引入（复核证据不支持），代价是 merge 后偶发一条测试超时。
+- **capability replay 一次 25/26**：并发前端构建负载下 `m89-new-activity-custom-task` 90s 超时；立即重跑 26/26，且此后两次单独重跑均 26/26 → 判为负载性超时，非场景回归。若错，代价是一次误报的基线达标。
+- **最终整支复审 triage**：4 条 in-scope 必修（回收率 >100%、成本卡无币种、分组图暴露 ticket.kind、docs/13+台账与 HEAD 不一致）全部进单一 fix wave；其余 deferred Minor 与「Declined to judge」项按已知限制保留、不在本里程碑修。若错，代价是带着已知小缺陷上线（均有台账记录）。
+- **response_rate 口径**：spec §4.5.2 原公式本身有缺陷；裁决改为「分子只数评价与运行都在窗口内结束的反馈（join agent_run）」，并同步 spec/docs，而不是仅前端 clamp。若错，代价是满意度回收率的口径与原始 spec 不同（已写入契约）。
+- **成本卡币种**：裁决给 API 加 `MetricCardOut.currency` 并在前端渲染，而不是把币种塞进 secondary label 或只在多币种时显示。若错，代价是 API 多一个可选字段（已同步 OpenAPI/类型/spec/docs）。
