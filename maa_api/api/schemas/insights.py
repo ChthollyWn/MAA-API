@@ -12,11 +12,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from pydantic import BaseModel, ConfigDict
 
 from maa_api.domain.enums import (
+    EvalCaseStatus,
+    EvalRunMode,
     EvidenceGrade,
     FeedbackReason,
     MetricId,
@@ -32,9 +34,18 @@ from maa_api.services.insights import (
     TrendData,
 )
 
+if TYPE_CHECKING:
+    from maa_api.db.models import EvalCaseResult, EvalRun
+    from maa_api.db.repositories.base import Page
+
 __all__ = [
     "BreakdownItemOut",
     "BreakdownOut",
+    "EvalCaseOut",
+    "EvalMetricRateOut",
+    "EvalRunDetailOut",
+    "EvalRunPage",
+    "EvalRunSummaryOut",
     "FeedbackDigestOut",
     "InsightFeedbackItemOut",
     "MetricCardOut",
@@ -45,6 +56,10 @@ __all__ = [
     "TrendOut",
     "TrendPointOut",
     "breakdown_out",
+    "eval_case_out",
+    "eval_run_detail_out",
+    "eval_run_page_out",
+    "eval_run_summary_out",
     "feedback_digest_out",
     "metric_card_out",
     "metric_definition_out",
@@ -278,6 +293,177 @@ def breakdown_out(data: BreakdownData) -> BreakdownOut:
             for item in data.items
         ],
         truncated=data.truncated,
+    )
+
+
+# ----------------------------------------------------------------------
+# 评测运行
+# ----------------------------------------------------------------------
+#: grader ``details`` 的快照上限（规格 §4.5.3）：发布时已截一次，读侧再兜一层，
+#: 防止旧数据或外部写入把超长明细带进响应。
+_MAX_GRADER_DETAILS = 5
+_MAX_GRADER_DETAIL_CHARS = 256
+
+
+class EvalRunSummaryOut(BaseModel):
+    """一次评测运行的汇总（spec §4.3）；时间字段是带 ``Z`` 的 ISO 8601。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str
+    suite: str
+    mode: EvalRunMode
+    started_at: str
+    finished_at: str
+    duration_ms: int
+    total: int
+    passed: int
+    failed: int
+    error: int
+    skipped: int
+    pass_rate: float
+    model_calls: int
+    cost_micros: int
+    currency: str | None
+
+
+class EvalRunPage(BaseModel):
+    """``GET /evals/runs`` 的分页信封；``total`` 是过滤后的总数。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[EvalRunSummaryOut]
+    total: int
+    page: int
+    size: int
+
+
+class EvalMetricRateOut(BaseModel):
+    """这次运行自身某指标的可判定通过计数与比率（spec §4.5.3）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric: MetricId
+    passed: int
+    total: int
+    rate: float | None
+    ci_low: float | None
+    ci_high: float | None
+
+
+class EvalCaseOut(BaseModel):
+    """一个评测用例的判分快照（spec §4.3）。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    scenario: str
+    title: str
+    suite: str
+    agent: str
+    metrics: list[MetricId]
+    tags: list[str]
+    status: EvalCaseStatus
+    score: float | None
+    attempt: int
+    duration_ms: int
+    model_calls: int
+    cost_micros: int
+    currency: str | None
+    graders: list[dict[str, Any]]
+    error: str | None
+
+
+class EvalRunDetailOut(EvalRunSummaryOut):
+    """``GET /evals/runs/{run_id}`` 的响应：summary + 指标率 + 用例。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    metric_rates: list[EvalMetricRateOut]
+    cases: list[EvalCaseOut]
+    #: ``cases`` 超过 500 条被截断时为 true（spec §4.5.5）。
+    cases_truncated: bool
+
+
+def _eval_run_summary_fields(run: EvalRun) -> dict[str, Any]:
+    """summary 的 15 个字段；detail 复用同一份，避免两处字段漂移。"""
+    return {
+        "id": run.id,
+        "suite": run.suite,
+        "mode": EvalRunMode(run.mode),
+        "started_at": _utc_z(run.started_at),
+        "finished_at": _utc_z(run.finished_at),
+        "duration_ms": run.duration_ms,
+        "total": run.total,
+        "passed": run.passed,
+        "failed": run.failed,
+        "error": run.error,
+        "skipped": run.skipped,
+        "pass_rate": run.pass_rate,
+        "model_calls": run.model_calls,
+        "cost_micros": run.cost_micros,
+        "currency": run.currency,
+    }
+
+
+def eval_run_summary_out(run: EvalRun) -> EvalRunSummaryOut:
+    return EvalRunSummaryOut(**_eval_run_summary_fields(run))
+
+
+def eval_run_page_out(page: Page[EvalRun]) -> EvalRunPage:
+    """分页信封逐字段搬运；``items`` 里每行转成 summary。"""
+    return EvalRunPage(
+        items=[eval_run_summary_out(run) for run in page.items],
+        total=page.total,
+        page=page.page,
+        size=page.size,
+    )
+
+
+def _grader_out(grader: dict[str, Any]) -> dict[str, Any]:
+    """单个判分器快照：``details`` 最多 5 条、每条截 256 字。"""
+    payload = dict(grader)
+    details = payload.get("details")
+    if isinstance(details, list):
+        payload["details"] = [
+            str(detail)[:_MAX_GRADER_DETAIL_CHARS]
+            for detail in details[:_MAX_GRADER_DETAILS]
+        ]
+    return payload
+
+
+def eval_case_out(case: EvalCaseResult) -> EvalCaseOut:
+    """用例快照；``metrics`` / ``status`` 从库里的字符串还原成枚举。"""
+    return EvalCaseOut(
+        scenario=case.scenario,
+        title=case.title,
+        suite=case.suite,
+        agent=case.agent,
+        metrics=[MetricId(metric) for metric in case.metrics],
+        tags=list(case.tags),
+        status=EvalCaseStatus(case.status),
+        score=case.score,
+        attempt=case.attempt,
+        duration_ms=case.duration_ms,
+        model_calls=case.model_calls,
+        cost_micros=case.cost_micros,
+        currency=case.currency,
+        graders=[_grader_out(grader) for grader in case.graders],
+        error=case.error,
+    )
+
+
+def eval_run_detail_out(
+    run: EvalRun,
+    cases: list[EvalCaseOut],
+    metric_rates: list[EvalMetricRateOut],
+    cases_truncated: bool,
+) -> EvalRunDetailOut:
+    """详情 = summary + 调用方算好的指标率 + 已截断的用例列表。"""
+    return EvalRunDetailOut(
+        **_eval_run_summary_fields(run),
+        metric_rates=list(metric_rates),
+        cases=list(cases),
+        cases_truncated=cases_truncated,
     )
 
 

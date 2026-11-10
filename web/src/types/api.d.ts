@@ -552,6 +552,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/evals/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取评测运行列表
+         * @description 按 ``finished_at DESC, id DESC`` 分页；``suite`` / ``mode`` 可选过滤。
+         */
+        get: operations["agent_list_eval_runs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/evals/runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取评测运行详情
+         * @description 概要、按该运行自身全部 case 现算的指标率与 ``(attempt, scenario)`` 升序的用例。
+         */
+        get: operations["agent_get_eval_run"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/goals": {
         parameters: {
             query?: never;
@@ -4524,6 +4564,162 @@ export interface components {
             status: "disabled" | "ready" | "indexing" | "unavailable";
             /** Total Chunks */
             total_chunks: number;
+        };
+        /**
+         * EvalCaseOut
+         * @description 一个评测用例的判分快照（spec §4.3）。
+         */
+        EvalCaseOut: {
+            /** Agent */
+            agent: string;
+            /** Attempt */
+            attempt: number;
+            /** Cost Micros */
+            cost_micros: number;
+            /** Currency */
+            currency: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error */
+            error: string | null;
+            /** Graders */
+            graders: {
+                [key: string]: unknown;
+            }[];
+            /** Metrics */
+            metrics: components["schemas"]["MetricId"][];
+            /** Model Calls */
+            model_calls: number;
+            /** Scenario */
+            scenario: string;
+            /** Score */
+            score: number | null;
+            status: components["schemas"]["EvalCaseStatus"];
+            /** Suite */
+            suite: string;
+            /** Tags */
+            tags: string[];
+            /** Title */
+            title: string;
+        };
+        /**
+         * EvalCaseStatus
+         * @description 一个评测用例的判分结果。
+         * @enum {string}
+         */
+        EvalCaseStatus: "passed" | "failed" | "error" | "skipped";
+        /**
+         * EvalMetricRateOut
+         * @description 这次运行自身某指标的可判定通过计数与比率（spec §4.5.3）。
+         */
+        EvalMetricRateOut: {
+            /** Ci High */
+            ci_high: number | null;
+            /** Ci Low */
+            ci_low: number | null;
+            metric: components["schemas"]["MetricId"];
+            /** Passed */
+            passed: number;
+            /** Rate */
+            rate: number | null;
+            /** Total */
+            total: number;
+        };
+        /**
+         * EvalRunDetailOut
+         * @description ``GET /evals/runs/{run_id}`` 的响应：summary + 指标率 + 用例。
+         */
+        EvalRunDetailOut: {
+            /** Cases */
+            cases: components["schemas"]["EvalCaseOut"][];
+            /** Cases Truncated */
+            cases_truncated: boolean;
+            /** Cost Micros */
+            cost_micros: number;
+            /** Currency */
+            currency: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error */
+            error: number;
+            /** Failed */
+            failed: number;
+            /** Finished At */
+            finished_at: string;
+            /** Id */
+            id: string;
+            /** Metric Rates */
+            metric_rates: components["schemas"]["EvalMetricRateOut"][];
+            mode: components["schemas"]["EvalRunMode"];
+            /** Model Calls */
+            model_calls: number;
+            /** Pass Rate */
+            pass_rate: number;
+            /** Passed */
+            passed: number;
+            /** Skipped */
+            skipped: number;
+            /** Started At */
+            started_at: string;
+            /** Suite */
+            suite: string;
+            /** Total */
+            total: number;
+        };
+        /**
+         * EvalRunMode
+         * @description 一次套件评测的运行模式；能力口径只取 record / live（spec §4.5.2）。
+         * @enum {string}
+         */
+        EvalRunMode: "replay" | "record" | "live";
+        /**
+         * EvalRunPage
+         * @description ``GET /evals/runs`` 的分页信封；``total`` 是过滤后的总数。
+         */
+        EvalRunPage: {
+            /** Items */
+            items: components["schemas"]["EvalRunSummaryOut"][];
+            /** Page */
+            page: number;
+            /** Size */
+            size: number;
+            /** Total */
+            total: number;
+        };
+        /**
+         * EvalRunSummaryOut
+         * @description 一次评测运行的汇总（spec §4.3）；时间字段是带 ``Z`` 的 ISO 8601。
+         */
+        EvalRunSummaryOut: {
+            /** Cost Micros */
+            cost_micros: number;
+            /** Currency */
+            currency: string | null;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Error */
+            error: number;
+            /** Failed */
+            failed: number;
+            /** Finished At */
+            finished_at: string;
+            /** Id */
+            id: string;
+            mode: components["schemas"]["EvalRunMode"];
+            /** Model Calls */
+            model_calls: number;
+            /** Pass Rate */
+            pass_rate: number;
+            /** Passed */
+            passed: number;
+            /** Skipped */
+            skipped: number;
+            /** Started At */
+            started_at: string;
+            /** Suite */
+            suite: string;
+            /** Total */
+            total: number;
         };
         /**
          * EventSource
@@ -10730,6 +10926,197 @@ export interface operations {
                      * @example {
                      *       "error": {
                      *         "code": "AGENT_DISABLED",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_list_eval_runs: {
+        parameters: {
+            query?: {
+                /** @description 页码，从 1 开始 */
+                page?: number;
+                /** @description 每页条数，1–50 */
+                size?: number;
+                /** @description 按套件过滤：regression / capability */
+                suite?: string | null;
+                /** @description 按运行模式过滤 */
+                mode?: components["schemas"]["EvalRunMode"] | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRunPage"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PAGINATION */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PAGINATION",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_eval_run: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description 评测运行 id（等于套件结果的 id） */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvalRunDetailOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 资源不存在：EVAL_RUN_NOT_FOUND */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "EVAL_RUN_NOT_FOUND",
+                     *         "details": {},
+                     *         "message": "资源不存在"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
                      *         "details": {},
                      *         "message": "服务暂时不可用"
                      *       }
