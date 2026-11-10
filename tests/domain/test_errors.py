@@ -75,8 +75,9 @@ _CJK_RE = re.compile(r"[\u4e00-\u9fff]")
 #: `NAV_STEP_FAILED`；码已在 W2 提前加入 `errors.py`，本卡补文档与计数）。
 #: 维护性补丁删除消耗护栏错误码一条（v3 specs/remove-spend-legacy-sessions §4.1）。
 #: M89 在 §4.23 加示教两条（`DEMONSTRATION_NOT_FOUND`、`DEMONSTRATION_STATE_INVALID`）。
-ALL_CODE_COUNT = 173
-HTTP_BOUND_CODE_COUNT = 172
+#: M99 在 §4.11 加评测运行一条（`EVAL_RUN_NOT_FOUND`）。
+ALL_CODE_COUNT = 174
+HTTP_BOUND_CODE_COUNT = 173
 SECTION_COUNT = 23
 
 #: M1-03 内核层 6 条的原始绑定，本卡一个不动。

@@ -248,6 +248,9 @@ class ErrorCode(StrEnum):
     # 该会话已有运行在进行。v2 会话的发消息端点仍返回 AGENT_SESSION_BUSY
     RUN_ALREADY_ACTIVE = "RUN_ALREADY_ACTIVE"
 
+    # 没有这次评测运行
+    EVAL_RUN_NOT_FOUND = "EVAL_RUN_NOT_FOUND"
+
     # 没有这个工单
     TICKET_NOT_FOUND = "TICKET_NOT_FOUND"
 
@@ -654,6 +657,7 @@ ERROR_HTTP_STATUS: dict[ErrorCode, int] = {
     ErrorCode.AGENT_TURN_INTERRUPTED: 409,
     ErrorCode.RUN_NOT_FOUND: 404,
     ErrorCode.RUN_ALREADY_ACTIVE: 409,
+    ErrorCode.EVAL_RUN_NOT_FOUND: 404,
     ErrorCode.TICKET_NOT_FOUND: 404,
     ErrorCode.TICKET_ENDED: 409,
     ErrorCode.DEVICE_LEASE_BUSY: 409,
