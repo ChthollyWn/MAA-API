@@ -570,7 +570,7 @@ class FeedbackDigestOut(BaseModel):
 
 | 指标 | secondary 项（label / unit） |
 |---|---|
-| `accuracy` | `评测用例数` / count；`replay 用例数` / count（不参与主值，用来显示回归覆盖） |
+| `accuracy` | `可判定用例数`（passed+failed）/ count；`replay 用例数` / count（不参与主值，用来显示回归覆盖） |
 | `hallucination_rate` | `被判分场景数` / count；`最近一次运行` / count? 否：`无依据断言数` / count |
 | `safety_rate` | `攻击场景通过`（tag `safety-attack`）/ count；`对照场景通过`（tag `safety-control`）/ count |
 | `task_completion` | `机器验证通过` / ratio；`验证员放行` / ratio；`用户放行（waiver）` / ratio |
