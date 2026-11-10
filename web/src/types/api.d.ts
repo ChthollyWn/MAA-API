@@ -602,6 +602,106 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/agent/insights/breakdown": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取单个指标的分组
+         * @description 按工单种类（``ticket_kind``）分组的读数；离线指标返回 400。
+         */
+        get: operations["agent_get_insights_breakdown"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/insights/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取能力指标目录
+         * @description 七个指标的口径、证据等级与限制；顺序与规格 §4.5.1 相同。
+         */
+        get: operations["agent_get_insights_catalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/insights/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取反馈摘要
+         * @description 窗口内的正 / 负 / 中性评价、原因分布与最近 ``limit`` 条评价。
+         */
+        get: operations["agent_get_insights_feedback"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/insights/overview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取能力指标总览
+         * @description 七个指标的本窗口读数、上一窗口 delta、secondary 与 warnings。
+         */
+        get: operations["agent_get_insights_overview"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/agent/insights/trend": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * 读取单个指标的趋势
+         * @description 按 UTC 日分桶的趋势；没有数据时返回空点集。
+         */
+        get: operations["agent_get_insights_trend"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/agent/knowledge": {
         parameters: {
             query?: never;
@@ -3674,6 +3774,37 @@ export interface components {
             status: string;
         };
         /**
+         * BreakdownItemOut
+         * @description 一个工单种类的分组读数。
+         */
+        BreakdownItemOut: {
+            /** Ci High */
+            ci_high: number | null;
+            /** Ci Low */
+            ci_low: number | null;
+            /** Key */
+            key: string;
+            /** Label */
+            label: string;
+            /** Sample Size */
+            sample_size: number;
+            /** Value */
+            value: number | null;
+        };
+        /**
+         * BreakdownOut
+         * @description ``GET /insights/breakdown`` 的响应；``dimension`` 固定 ``ticket_kind``。
+         */
+        BreakdownOut: {
+            /** Dimension */
+            dimension: string;
+            /** Items */
+            items: components["schemas"]["BreakdownItemOut"][];
+            metric: components["schemas"]["MetricId"];
+            /** Truncated */
+            truncated: boolean;
+        };
+        /**
          * BriefRunResult
          * @description ``POST /api/agent/brief/run`` 的响应体（§4.3、§4.5.9）。
          */
@@ -4401,6 +4532,42 @@ export interface components {
          */
         EventSource: "web" | "im_telegram" | "im_feishu" | "im_dingtalk" | "im_qq" | "pipeline" | "core" | "device" | "schedule" | "system" | "watchdog" | "goal";
         /**
+         * EvidenceGrade
+         * @description 指标证据等级；决定看板上「这个数字有多可信」的标注。
+         * @enum {string}
+         */
+        EvidenceGrade: "measured" | "self_reported" | "proxy" | "unavailable";
+        /**
+         * FeedbackDigestOut
+         * @description ``GET /insights/feedback`` 的响应。
+         */
+        FeedbackDigestOut: {
+            /** Items */
+            items: components["schemas"]["InsightFeedbackItemOut"][];
+            /** Negative */
+            negative: number;
+            /** Neutral */
+            neutral: number;
+            /** Positive */
+            positive: number;
+            /** Reasons */
+            reasons: {
+                [key: string]: unknown;
+            }[];
+            /** Response Rate */
+            response_rate: number | null;
+            /** Total */
+            total: number;
+            /** Window Days */
+            window_days: number;
+        };
+        /**
+         * FeedbackReason
+         * @description 用户对一次运行不满意的原因标签（spec §4.5.4）。
+         * @enum {string}
+         */
+        FeedbackReason: "inaccurate" | "incomplete" | "slow" | "unsafe" | "other";
+        /**
          * FightInput
          * @description 刷理智：刷指定关卡，支持理智药、碎石与连战。
          * @example {
@@ -4854,6 +5021,28 @@ export interface components {
             /** Text */
             text: string;
         };
+        /**
+         * InsightFeedbackItemOut
+         * @description 最近评价列表的一行（spec §4.5.4）。
+         */
+        InsightFeedbackItemOut: {
+            /** Agent Name */
+            agent_name: string;
+            /** Comment */
+            comment: string | null;
+            /** Created At */
+            created_at: string;
+            /** Id */
+            id: number;
+            /** Rating */
+            rating: number;
+            /** Reasons */
+            reasons: components["schemas"]["FeedbackReason"][];
+            /** Run Id */
+            run_id: string;
+            /** Ticket Id */
+            ticket_id: string | null;
+        };
         /** InvokeRequest */
         InvokeRequest: {
             /** Arguments */
@@ -5214,6 +5403,82 @@ export interface components {
              */
             type: "knowledge" | "operator" | "stage" | "pipeline" | "ticket";
         };
+        /**
+         * MetricCardOut
+         * @description 一个指标的本窗口读数；无数据时 ``value``/CI/``delta`` 为 ``None``。
+         */
+        MetricCardOut: {
+            /** Ci High */
+            ci_high: number | null;
+            /** Ci Low */
+            ci_low: number | null;
+            /** Delta */
+            delta: number | null;
+            evidence: components["schemas"]["EvidenceGrade"];
+            id: components["schemas"]["MetricId"];
+            /** Label */
+            label: string;
+            /** Sample Size */
+            sample_size: number;
+            scope: components["schemas"]["MetricScope"];
+            /** Secondary */
+            secondary: components["schemas"]["SubMetricOut"][];
+            /** Unit */
+            unit: string;
+            /** Updated At */
+            updated_at: string | null;
+            /** Value */
+            value: number | null;
+        };
+        /**
+         * MetricCatalogOut
+         * @description ``GET /insights/catalog`` 的响应：顺序与 §4.5.1 相同。
+         */
+        MetricCatalogOut: {
+            /** Items */
+            items: components["schemas"]["MetricDefinitionOut"][];
+        };
+        /**
+         * MetricDefinitionOut
+         * @description 一个指标的口径与展示文案（spec §4.3 / §4.5.1）。
+         */
+        MetricDefinitionOut: {
+            /** Definition */
+            definition: string;
+            /** Evaluation */
+            evaluation: string;
+            evidence: components["schemas"]["EvidenceGrade"];
+            /** Formula */
+            formula: string;
+            id: components["schemas"]["MetricId"];
+            /** Label */
+            label: string;
+            /** Limitations */
+            limitations: string[];
+            /** Min Sample */
+            min_sample: number;
+            scope: components["schemas"]["MetricScope"];
+            /** Source */
+            source: string;
+            /** Supports Breakdown */
+            supports_breakdown: boolean;
+            /** Supports Trend */
+            supports_trend: boolean;
+            /** Unit */
+            unit: string;
+        };
+        /**
+         * MetricId
+         * @description 看板七个指标的稳定 id（spec §4.1、§4.5.1）；前端按它取文案与图表。
+         * @enum {string}
+         */
+        MetricId: "accuracy" | "task_completion" | "conversation_efficiency" | "hallucination_rate" | "safety_rate" | "user_satisfaction" | "cost";
+        /**
+         * MetricScope
+         * @description 指标的统计范围：离线（评测结果）或在线（运行/工单账本）。
+         * @enum {string}
+         */
+        MetricScope: "offline" | "online";
         /**
          * MilestoneOut
          * @description 一个里程碑的对外形状。
@@ -5785,6 +6050,20 @@ export interface components {
             success?: ("three_star" | "clear") | null;
             /** Support */
             support?: ("fill_one" | "none") | null;
+        };
+        /**
+         * OverviewOut
+         * @description ``GET /insights/overview`` 的响应。
+         */
+        OverviewOut: {
+            /** Generated At */
+            generated_at: string;
+            /** Items */
+            items: components["schemas"]["MetricCardOut"][];
+            /** Warnings */
+            warnings: string[];
+            /** Window Days */
+            window_days: number;
         };
         /**
          * PipelineCreate
@@ -7697,6 +7976,20 @@ export interface components {
             start_game_enabled: boolean | null;
         };
         /**
+         * SubMetricOut
+         * @description 指标卡上的一行 secondary（spec §4.5.1 的 secondary 表）。
+         */
+        SubMetricOut: {
+            /** Label */
+            label: string;
+            /** Sample Size */
+            sample_size: number;
+            /** Unit */
+            unit: string;
+            /** Value */
+            value: number | null;
+        };
+        /**
          * SubscriptionOut
          * @description 工单对某个话题键的订阅；停用后保留行。
          */
@@ -7908,6 +8201,34 @@ export interface components {
             title: string;
             /** Updated At */
             updated_at: string;
+        };
+        /**
+         * TrendOut
+         * @description ``GET /insights/trend`` 的响应；没有数据时 ``points`` 为空。
+         */
+        TrendOut: {
+            metric: components["schemas"]["MetricId"];
+            /** Points */
+            points: components["schemas"]["TrendPointOut"][];
+            scope: components["schemas"]["MetricScope"];
+            /** Unit */
+            unit: string;
+        };
+        /**
+         * TrendPointOut
+         * @description 趋势上的一天；``date`` 是 UTC 日 ``YYYY-MM-DD``。
+         */
+        TrendPointOut: {
+            /** Ci High */
+            ci_high: number | null;
+            /** Ci Low */
+            ci_low: number | null;
+            /** Date */
+            date: string;
+            /** Sample Size */
+            sample_size: number;
+            /** Value */
+            value: number | null;
         };
         /**
          * TriggerAdmission
@@ -10772,6 +11093,422 @@ export interface operations {
                      *         "code": "GOAL_ENDED",
                      *         "details": {},
                      *         "message": "与当前状态冲突"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_insights_breakdown: {
+        parameters: {
+            query: {
+                /** @description 指标 id */
+                metric: components["schemas"]["MetricId"];
+                /** @description 统计窗口天数 */
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BreakdownOut"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_insights_catalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MetricCatalogOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_insights_feedback: {
+        parameters: {
+            query?: {
+                /** @description 统计窗口天数 */
+                window_days?: number;
+                /** @description 最近评价条数，最多 20 */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackDigestOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_insights_overview: {
+        parameters: {
+            query?: {
+                /** @description 统计窗口天数 */
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["OverviewOut"];
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 参数校验失败：VALIDATION_ERROR */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "VALIDATION_ERROR",
+                     *         "details": {},
+                     *         "message": "参数校验失败"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description 服务暂时不可用：SERVICE_UNAVAILABLE */
+            503: {
+                headers: {
+                    /** @description 建议的重试等待秒数（整数） */
+                    "Retry-After"?: number;
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "SERVICE_UNAVAILABLE",
+                     *         "details": {},
+                     *         "message": "服务暂时不可用"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+        };
+    };
+    agent_get_insights_trend: {
+        parameters: {
+            query: {
+                /** @description 指标 id */
+                metric: components["schemas"]["MetricId"];
+                /** @description 统计窗口天数 */
+                window_days?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TrendOut"];
+                };
+            };
+            /** @description 请求不成立：INVALID_PARAMETER */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "INVALID_PARAMETER",
+                     *         "details": {},
+                     *         "message": "请求不成立"
+                     *       }
+                     *     }
+                     */
+                    "application/json": unknown;
+                };
+            };
+            /** @description token 缺失或不匹配：UNAUTHORIZED */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "UNAUTHORIZED",
+                     *         "details": {},
+                     *         "message": "token 缺失或不匹配"
                      *       }
                      *     }
                      */

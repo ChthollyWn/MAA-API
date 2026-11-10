@@ -1539,6 +1539,99 @@
         "title": "BindingOut",
         "type": "object"
       },
+      "BreakdownItemOut": {
+        "additionalProperties": false,
+        "description": "一个工单种类的分组读数。",
+        "properties": {
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Low"
+          },
+          "key": {
+            "title": "Key",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "key",
+          "label",
+          "value",
+          "sample_size",
+          "ci_low",
+          "ci_high"
+        ],
+        "title": "BreakdownItemOut",
+        "type": "object"
+      },
+      "BreakdownOut": {
+        "additionalProperties": false,
+        "description": "``GET /insights/breakdown`` 的响应；``dimension`` 固定 ``ticket_kind``。",
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/BreakdownItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/MetricId"
+          },
+          "truncated": {
+            "title": "Truncated",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "metric",
+          "dimension",
+          "items",
+          "truncated"
+        ],
+        "title": "BreakdownOut",
+        "type": "object"
+      },
       "BriefRunResult": {
         "description": "``POST /api/agent/brief/run`` 的响应体（§4.3、§4.5.9）。",
         "properties": {
@@ -3137,6 +3230,93 @@
         "title": "EventSource",
         "type": "string"
       },
+      "EvidenceGrade": {
+        "description": "指标证据等级；决定看板上「这个数字有多可信」的标注。",
+        "enum": [
+          "measured",
+          "self_reported",
+          "proxy",
+          "unavailable"
+        ],
+        "title": "EvidenceGrade",
+        "type": "string"
+      },
+      "FeedbackDigestOut": {
+        "additionalProperties": false,
+        "description": "``GET /insights/feedback`` 的响应。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/InsightFeedbackItemOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "negative": {
+            "title": "Negative",
+            "type": "integer"
+          },
+          "neutral": {
+            "title": "Neutral",
+            "type": "integer"
+          },
+          "positive": {
+            "title": "Positive",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "response_rate": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Response Rate"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "total",
+          "positive",
+          "negative",
+          "neutral",
+          "response_rate",
+          "reasons",
+          "items"
+        ],
+        "title": "FeedbackDigestOut",
+        "type": "object"
+      },
+      "FeedbackReason": {
+        "description": "用户对一次运行不满意的原因标签（spec §4.5.4）。",
+        "enum": [
+          "inaccurate",
+          "incomplete",
+          "slow",
+          "unsafe",
+          "other"
+        ],
+        "title": "FeedbackReason",
+        "type": "string"
+      },
       "FightInput": {
         "additionalProperties": false,
         "description": "刷理智：刷指定关卡，支持理智药、碎石与连战。",
@@ -4365,6 +4545,73 @@
         "title": "InputTextRequest",
         "type": "object"
       },
+      "InsightFeedbackItemOut": {
+        "additionalProperties": false,
+        "description": "最近评价列表的一行（spec §4.5.4）。",
+        "properties": {
+          "agent_name": {
+            "title": "Agent Name",
+            "type": "string"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "integer"
+          },
+          "rating": {
+            "title": "Rating",
+            "type": "integer"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/FeedbackReason"
+            },
+            "title": "Reasons",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "ticket_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ticket Id"
+          }
+        },
+        "required": [
+          "id",
+          "run_id",
+          "ticket_id",
+          "agent_name",
+          "rating",
+          "reasons",
+          "comment",
+          "created_at"
+        ],
+        "title": "InsightFeedbackItemOut",
+        "type": "object"
+      },
       "InvokeRequest": {
         "additionalProperties": false,
         "properties": {
@@ -5266,6 +5513,227 @@
         ],
         "title": "Mention",
         "type": "object"
+      },
+      "MetricCardOut": {
+        "additionalProperties": false,
+        "description": "一个指标的本窗口读数；无数据时 ``value``/CI/``delta`` 为 ``None``。",
+        "properties": {
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Low"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/EvidenceGrade"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MetricId"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MetricScope"
+          },
+          "secondary": {
+            "items": {
+              "$ref": "#/components/schemas/SubMetricOut"
+            },
+            "title": "Secondary",
+            "type": "array"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "scope",
+          "unit",
+          "value",
+          "sample_size",
+          "ci_low",
+          "ci_high",
+          "delta",
+          "evidence",
+          "updated_at",
+          "secondary"
+        ],
+        "title": "MetricCardOut",
+        "type": "object"
+      },
+      "MetricCatalogOut": {
+        "additionalProperties": false,
+        "description": "``GET /insights/catalog`` 的响应：顺序与 §4.5.1 相同。",
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MetricDefinitionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "title": "MetricCatalogOut",
+        "type": "object"
+      },
+      "MetricDefinitionOut": {
+        "additionalProperties": false,
+        "description": "一个指标的口径与展示文案（spec §4.3 / §4.5.1）。",
+        "properties": {
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "evaluation": {
+            "title": "Evaluation",
+            "type": "string"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/EvidenceGrade"
+          },
+          "formula": {
+            "title": "Formula",
+            "type": "string"
+          },
+          "id": {
+            "$ref": "#/components/schemas/MetricId"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "limitations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Limitations",
+            "type": "array"
+          },
+          "min_sample": {
+            "title": "Min Sample",
+            "type": "integer"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MetricScope"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "supports_breakdown": {
+            "title": "Supports Breakdown",
+            "type": "boolean"
+          },
+          "supports_trend": {
+            "title": "Supports Trend",
+            "type": "boolean"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "scope",
+          "unit",
+          "definition",
+          "formula",
+          "source",
+          "evaluation",
+          "evidence",
+          "min_sample",
+          "limitations",
+          "supports_trend",
+          "supports_breakdown"
+        ],
+        "title": "MetricDefinitionOut",
+        "type": "object"
+      },
+      "MetricId": {
+        "description": "看板七个指标的稳定 id（spec §4.1、§4.5.1）；前端按它取文案与图表。",
+        "enum": [
+          "accuracy",
+          "task_completion",
+          "conversation_efficiency",
+          "hallucination_rate",
+          "safety_rate",
+          "user_satisfaction",
+          "cost"
+        ],
+        "title": "MetricId",
+        "type": "string"
+      },
+      "MetricScope": {
+        "description": "指标的统计范围：离线（评测结果）或在线（运行/工单账本）。",
+        "enum": [
+          "offline",
+          "online"
+        ],
+        "title": "MetricScope",
+        "type": "string"
       },
       "MilestoneOut": {
         "description": "一个里程碑的对外形状。",
@@ -6930,6 +7398,42 @@
           }
         },
         "title": "OverridesRequest",
+        "type": "object"
+      },
+      "OverviewOut": {
+        "additionalProperties": false,
+        "description": "``GET /insights/overview`` 的响应。",
+        "properties": {
+          "generated_at": {
+            "title": "Generated At",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MetricCardOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "window_days": {
+            "title": "Window Days",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "window_days",
+          "generated_at",
+          "items",
+          "warnings"
+        ],
+        "title": "OverviewOut",
         "type": "object"
       },
       "PipelineCreate": {
@@ -11773,6 +12277,43 @@
         "title": "StartUpInput",
         "type": "object"
       },
+      "SubMetricOut": {
+        "additionalProperties": false,
+        "description": "指标卡上的一行 secondary（spec §4.5.1 的 secondary 表）。",
+        "properties": {
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "label",
+          "value",
+          "unit",
+          "sample_size"
+        ],
+        "title": "SubMetricOut",
+        "type": "object"
+      },
       "SubscriptionOut": {
         "description": "工单对某个话题键的订阅；停用后保留行。",
         "properties": {
@@ -12352,6 +12893,93 @@
           "ended_at"
         ],
         "title": "TicketSummary",
+        "type": "object"
+      },
+      "TrendOut": {
+        "additionalProperties": false,
+        "description": "``GET /insights/trend`` 的响应；没有数据时 ``points`` 为空。",
+        "properties": {
+          "metric": {
+            "$ref": "#/components/schemas/MetricId"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPointOut"
+            },
+            "title": "Points",
+            "type": "array"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/MetricScope"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "metric",
+          "scope",
+          "unit",
+          "points"
+        ],
+        "title": "TrendOut",
+        "type": "object"
+      },
+      "TrendPointOut": {
+        "additionalProperties": false,
+        "description": "趋势上的一天；``date`` 是 UTC 日 ``YYYY-MM-DD``。",
+        "properties": {
+          "ci_high": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci High"
+          },
+          "ci_low": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ci Low"
+          },
+          "date": {
+            "title": "Date",
+            "type": "string"
+          },
+          "sample_size": {
+            "title": "Sample Size",
+            "type": "integer"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "date",
+          "value",
+          "sample_size",
+          "ci_low",
+          "ci_high"
+        ],
+        "title": "TrendPointOut",
         "type": "object"
       },
       "TriggerAdmission": {
@@ -16233,6 +16861,483 @@
           }
         },
         "summary": "修改目标",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/insights/breakdown": {
+      "get": {
+        "description": "按工单种类（``ticket_kind``）分组的读数；离线指标返回 400。",
+        "operationId": "agent_get_insights_breakdown",
+        "parameters": [
+          {
+            "description": "指标 id",
+            "in": "query",
+            "name": "metric",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MetricId",
+              "description": "指标 id"
+            }
+          },
+          {
+            "description": "统计窗口天数",
+            "in": "query",
+            "name": "window_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "统计窗口天数",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Window Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BreakdownOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取单个指标的分组",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/insights/catalog": {
+      "get": {
+        "description": "七个指标的口径、证据等级与限制；顺序与规格 §4.5.1 相同。",
+        "operationId": "agent_get_insights_catalog",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricCatalogOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0.0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取能力指标目录",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/insights/feedback": {
+      "get": {
+        "description": "窗口内的正 / 负 / 中性评价、原因分布与最近 ``limit`` 条评价。",
+        "operationId": "agent_get_insights_feedback",
+        "parameters": [
+          {
+            "description": "统计窗口天数",
+            "in": "query",
+            "name": "window_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "统计窗口天数",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Window Days",
+              "type": "integer"
+            }
+          },
+          {
+            "description": "最近评价条数，最多 20",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 10,
+              "description": "最近评价条数，最多 20",
+              "maximum": 20,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackDigestOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取反馈摘要",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/insights/overview": {
+      "get": {
+        "description": "七个指标的本窗口读数、上一窗口 delta、secondary 与 warnings。",
+        "operationId": "agent_get_insights_overview",
+        "parameters": [
+          {
+            "description": "统计窗口天数",
+            "in": "query",
+            "name": "window_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "统计窗口天数",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Window Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OverviewOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取能力指标总览",
+        "tags": [
+          "agent"
+        ]
+      }
+    },
+    "/api/agent/insights/trend": {
+      "get": {
+        "description": "按 UTC 日分桶的趋势；没有数据时返回空点集。",
+        "operationId": "agent_get_insights_trend",
+        "parameters": [
+          {
+            "description": "指标 id",
+            "in": "query",
+            "name": "metric",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/MetricId",
+              "description": "指标 id"
+            }
+          },
+          {
+            "description": "统计窗口天数",
+            "in": "query",
+            "name": "window_days",
+            "required": false,
+            "schema": {
+              "default": 30,
+              "description": "统计窗口天数",
+              "maximum": 365,
+              "minimum": 1,
+              "title": "Window Days",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendOut"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "INVALID_PARAMETER",
+                    "details": {},
+                    "message": "请求不成立"
+                  }
+                }
+              }
+            },
+            "description": "请求不成立：INVALID_PARAMETER"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "UNAUTHORIZED",
+                    "details": {},
+                    "message": "token 缺失或不匹配"
+                  }
+                }
+              }
+            },
+            "description": "token 缺失或不匹配：UNAUTHORIZED"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "VALIDATION_ERROR",
+                    "details": {},
+                    "message": "参数校验失败"
+                  }
+                }
+              }
+            },
+            "description": "参数校验失败：VALIDATION_ERROR"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "error": {
+                    "code": "SERVICE_UNAVAILABLE",
+                    "details": {},
+                    "message": "服务暂时不可用"
+                  }
+                }
+              }
+            },
+            "description": "服务暂时不可用：SERVICE_UNAVAILABLE",
+            "headers": {
+              "Retry-After": {
+                "description": "建议的重试等待秒数（整数）",
+                "schema": {
+                  "minimum": 0,
+                  "type": "integer"
+                }
+              }
+            }
+          }
+        },
+        "summary": "读取单个指标的趋势",
         "tags": [
           "agent"
         ]
