@@ -179,6 +179,7 @@ export default function ConsolePage() {
 
   const scroll = useConversationScroll({
     container: desktop ? scroller : null,
+    target: desktop ? 'container' : 'document',
     content,
     headKey: controller.history[0]?.id,
     tailKey,
@@ -264,7 +265,7 @@ export default function ConsolePage() {
               <h2 className="text-headline font-semibold">总控会话</h2>
             </div>
             <div ref={setScroller} className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-              <div ref={setContent} className="mx-auto w-full max-w-3xl px-6 py-6">{conversation}</div>
+              <div ref={setContent} className="relative mx-auto w-full max-w-3xl px-6 py-6">{conversation}</div>
             </div>
             {composer}
           </section>

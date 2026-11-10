@@ -789,7 +789,7 @@ export interface ActiveTicketsProps { tickets: readonly TicketView[]; leaseTicke
 - `menu` 是 `ActionMenu`（`label="指挥台操作"`）：`重新开始会话`（描述 `当前总控会话归档，进行中的工单不受影响`）、`旧会话`（去 `/more/sessions`）、`运行状态`（去 `/more/status`）。
 - `excludeIds` = 实时副本挂着的确认 id 与提问 id。
 - 历史为空且没有实时副本时显示快捷开场：标题 `你可以这样开始`，三个按钮 `把日常做了`、`设备连上了吗`、`上次那条流水线为什么失败`，下方一行 `会消耗资源或改动游戏的操作，都会先问过你再执行。`；点按钮把 `seed` 设成 `{ text: 按钮文字, nonce: Date.now() }`，只填进输入栏并聚焦。进行中工单空状态的按钮 `写下要做的事` 调 `textareaRef.current?.focus()`。
-- 滚动跟随复用 `useConversationScroll`（桌面传消息区容器，手机传 null）：`headKey` 是第一条历史 id；`tailKey` 由最后一条可见历史 id、实时副本的段数与文字总长、挂起卡 id、排队条数、错误文案、消息查询状态拼成（与 v2 `tailKey` 同法）；`resetKey` 是 `scopeKey`。
+- 滚动跟随复用 `useConversationScroll`（桌面传消息区容器与 `target: 'container'`，手机传 null 与 `target: 'document'`；桌面容器在首次提交尚未就绪时这一帧不做任何滚动，避免回退成整页滚动，见 [13 §8.185](../13-决策记录.md)）：`headKey` 是第一条历史 id；`tailKey` 由最后一条可见历史 id、实时副本的段数与文字总长、挂起卡 id、排队条数、错误文案、消息查询状态拼成（与 v2 `tailKey` 同法）；`resetKey` 是 `scopeKey`。
 
 #### 4.6.5 工单与代理定义
 
