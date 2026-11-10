@@ -1,4 +1,4 @@
-"""SQLModel 表定义：58 张业务表（docs/04 §3、§5、§6、§7）。
+"""SQLModel 表定义：61 张业务表（docs/04 §3、§5、§6、§7）。
 
 约束（每条都有取证依据）：
 
@@ -2634,4 +2634,120 @@ class Demonstration(SQLModel, table=True):
     )
     updated_at: datetime = Field(
         default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+
+# ---------------------------------------------------------------------------
+# M99 能力效果看板：评测运行、用例结果与运行评价（v3 specs/m99 §4.1）
+# ---------------------------------------------------------------------------
+class EvalRun(SQLModel, table=True):
+    """一次套件评测的汇总快照（M99 规格 §4.1）。"""
+
+    __tablename__ = "eval_run"
+
+    #: 等于 ``SuiteResult.id``（``20261110-081530-capability-live-3f2a``），发布幂等的依据。
+    id: str = Field(primary_key=True, max_length=64)
+    suite: str = Field(max_length=16)            # regression / capability
+    mode: str = Field(max_length=8)              # EvalRunMode
+    started_at: datetime = Field(sa_column=datetime_column("started_at"))
+    finished_at: datetime = Field(sa_column=datetime_column("finished_at"))
+    duration_ms: int = Field(default=0)
+    total: int = Field(default=0)
+    passed: int = Field(default=0)
+    failed: int = Field(default=0)
+    error: int = Field(default=0)
+    skipped: int = Field(default=0)
+    pass_rate: float = Field(default=0.0)
+    model_calls: int = Field(default=0)
+    prompt_tokens: int = Field(default=0)
+    completion_tokens: int = Field(default=0)
+    cached_tokens: int = Field(default=0)
+    reasoning_tokens: int = Field(default=0)
+    cost_micros: int = Field(default=0)
+    currency: str | None = Field(default=None, max_length=8)
+    git: dict[str, Any] | None = Field(default=None, sa_column=json_column("git"))
+    model: dict[str, Any] | None = Field(default=None, sa_column=json_column("model"))
+    filters: dict[str, Any] | None = Field(
+        default=None, sa_column=json_column("filters")
+    )
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        Index("ix_eval_run_finished_at", "finished_at"),
+        Index("ix_eval_run_suite_finished_at", "suite", "finished_at"),
+    )
+
+
+class EvalCaseResult(SQLModel, table=True):
+    """一个评测用例的判分快照（M99 规格 §4.1）；不存 observation 明细。"""
+
+    __tablename__ = "eval_case_result"
+
+    id: int | None = Field(default=None, primary_key=True)
+    eval_run_id: str = Field(
+        foreign_key="eval_run.id", ondelete="CASCADE", max_length=64
+    )
+    scenario: str = Field(max_length=96)
+    title: str = Field(max_length=64)
+    suite: str = Field(max_length=16)
+    agent: str = Field(max_length=32)
+    metrics: list[str] = Field(default_factory=list, sa_column=json_column("metrics"))
+    #: 场景 tags 快照（`safety-attack` / `safety-control` 等，看板分组用）。
+    tags: list[str] = Field(default_factory=list, sa_column=json_column("tags"))
+    status: str = Field(max_length=16)           # EvalCaseStatus
+    score: float | None = Field(default=None)
+    attempt: int = Field(default=1)
+    variant: str = Field(default="target", max_length=16)
+    duration_ms: int = Field(default=0)
+    model_calls: int = Field(default=0)
+    prompt_tokens: int = Field(default=0)
+    completion_tokens: int = Field(default=0)
+    cached_tokens: int = Field(default=0)
+    reasoning_tokens: int = Field(default=0)
+    cost_micros: int = Field(default=0)
+    currency: str | None = Field(default=None, max_length=8)
+    graders: list[dict[str, Any]] = Field(
+        default_factory=list, sa_column=json_column("graders")
+    )
+    error: str | None = Field(default=None, sa_column=text_column("error"))
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "eval_run_id", "scenario", "attempt", "variant",
+            name="uq_eval_case_result_run_scenario_attempt_variant",
+        ),
+        Index("ix_eval_case_result_eval_run_id", "eval_run_id"),
+        Index("ix_eval_case_result_scenario", "scenario"),
+        {"sqlite_autoincrement": True},
+    )
+
+
+class RunFeedback(SQLModel, table=True):
+    """用户对一次运行的评价（M99 规格 §4.1）；一次运行至多一条，重复提交覆盖。"""
+
+    __tablename__ = "run_feedback"
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: str = Field(
+        foreign_key="agent_run.id", ondelete="CASCADE", max_length=36
+    )
+    rating: int = Field(ge=1, le=5)
+    reasons: list[str] = Field(default_factory=list, sa_column=json_column("reasons"))
+    comment: str | None = Field(default=None, max_length=500)
+    created_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("created_at")
+    )
+    updated_at: datetime = Field(
+        default_factory=utcnow, sa_column=datetime_column("updated_at")
+    )
+
+    __table_args__ = (
+        UniqueConstraint("run_id", name="uq_run_feedback_run_id"),
+        Index("ix_run_feedback_created_at", "created_at"),
+        {"sqlite_autoincrement": True},
     )

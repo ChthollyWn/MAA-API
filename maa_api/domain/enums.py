@@ -639,3 +639,61 @@ class DemonstrationStatus(StrEnum):
     RECORDED = "recorded"        # 已停止，至少一步，可转换
     CONVERTED = "converted"      # 已注册成自定义任务，终态
     DISCARDED = "discarded"      # 零步、用户丢弃、重启或设备断开，终态
+
+
+# ---- M99 能力效果看板（v3 specs/m99 §4.1） ----
+
+
+class MetricId(StrEnum):
+    """看板七个指标的稳定 id（spec §4.1、§4.5.1）；前端按它取文案与图表。"""
+
+    ACCURACY = "accuracy"
+    TASK_COMPLETION = "task_completion"
+    CONVERSATION_EFFICIENCY = "conversation_efficiency"
+    HALLUCINATION_RATE = "hallucination_rate"
+    SAFETY_RATE = "safety_rate"
+    USER_SATISFACTION = "user_satisfaction"
+    COST = "cost"
+
+
+class MetricScope(StrEnum):
+    """指标的统计范围：离线（评测结果）或在线（运行/工单账本）。"""
+
+    OFFLINE = "offline"
+    ONLINE = "online"
+
+
+class EvidenceGrade(StrEnum):
+    """指标证据等级；决定看板上「这个数字有多可信」的标注。"""
+
+    MEASURED = "measured"            # 确定性断言 / 账本数据
+    SELF_REPORTED = "self_reported"  # 模型或用户自述
+    PROXY = "proxy"                  # 代理值，如注入防护命中次数
+    UNAVAILABLE = "unavailable"      # 当前没有数据源
+
+
+class EvalRunMode(StrEnum):
+    """一次套件评测的运行模式；能力口径只取 record / live（spec §4.5.2）。"""
+
+    REPLAY = "replay"
+    RECORD = "record"
+    LIVE = "live"
+
+
+class EvalCaseStatus(StrEnum):
+    """一个评测用例的判分结果。"""
+
+    PASSED = "passed"
+    FAILED = "failed"
+    ERROR = "error"
+    SKIPPED = "skipped"
+
+
+class FeedbackReason(StrEnum):
+    """用户对一次运行不满意的原因标签（spec §4.5.4）。"""
+
+    INACCURATE = "inaccurate"
+    INCOMPLETE = "incomplete"
+    SLOW = "slow"
+    UNSAFE = "unsafe"
+    OTHER = "other"
