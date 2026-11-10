@@ -27,6 +27,7 @@ const AuditPage = lazy(() => import('@/features/audit/AuditPage'))
 const RunsPage = lazy(() => import('@/features/runs/RunsPage'))
 const RunDetailPage = lazy(() => import('@/features/runs/RunDetailPage'))
 const CostsPage = lazy(() => import('@/features/costs/CostsPage'))
+const InsightsPage = lazy(() => import('@/features/insights/InsightsPage'))
 const ConsolePage = lazy(() => import('@/features/console/ConsolePage'))
 const TicketsPage = lazy(() => import('@/features/tickets/TicketsPage'))
 const TicketDetailPage = lazy(() => import('@/features/tickets/TicketDetailPage'))
@@ -174,6 +175,7 @@ export const routeConfig: RouteObject[] = [
       { path: 'more/runs', element: page(<RunsPage />) },
       { path: 'more/runs/:runId', element: page(<RunDetailPage />) },
       { path: 'more/costs', element: page(<CostsPage />) },
+      { path: 'more/insights', element: page(<InsightsPage />) },
       { path: 'more/audit', element: page(<AuditPage />) },
       { path: 'more/updates', element: page(<UpdatesPage />) },
       { path: 'more/settings', element: page(<SettingsPage />) },
