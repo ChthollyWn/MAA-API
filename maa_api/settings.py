@@ -147,6 +147,15 @@ SETTING_KEYS: dict[str, tuple[str, ...]] = {
     "llm.role_memory": ("llm", "role_memory"),
     "llm.role_vision": ("llm", "role_vision"),
     "llm.role_embedding": ("llm", "role_embedding"),
+    # ---- 峰谷计价（offpeak-pricing 规格 §4.2 第 1 条、§4.4）：default 档案的峰/谷价与
+    # 手工维护的中国法定节假日列表。都热设置；空闲价 0 表示回退高峰价。 ----
+    "llm.price_input": ("llm", "price_input"),
+    "llm.price_cached_input": ("llm", "price_cached_input"),
+    "llm.price_output": ("llm", "price_output"),
+    "llm.price_input_offpeak": ("llm", "price_input_offpeak"),
+    "llm.price_cached_input_offpeak": ("llm", "price_cached_input_offpeak"),
+    "llm.price_output_offpeak": ("llm", "price_output_offpeak"),
+    "llm.peak_holidays": ("llm", "peak_holidays"),
     # 成本预算（元，0 为不限）与上下文窗口兜底值；都是可热改的产品设置。
     "budget.daily_cost_limit": ("budget", "daily_cost_limit"),
     "budget.per_run_cost_limit": ("budget", "per_run_cost_limit"),
@@ -393,6 +402,16 @@ class LLMSettings(BaseModel):
     role_memory: str = ""
     role_vision: str = ""
     role_embedding: str = ""
+    #: 峰谷价（元/百万 token；default 档案的价格从这里合成，offpeak 规格 §4.2、§4.4）。
+    #: 空闲价为 0 表示「未配置，回退高峰价」，不是免费。
+    price_input: float = Field(default=0.0, ge=0, le=100_000)
+    price_cached_input: float = Field(default=0.0, ge=0, le=100_000)
+    price_output: float = Field(default=0.0, ge=0, le=100_000)
+    price_input_offpeak: float = Field(default=0.0, ge=0, le=100_000)
+    price_cached_input_offpeak: float = Field(default=0.0, ge=0, le=100_000)
+    price_output_offpeak: float = Field(default=0.0, ge=0, le=100_000)
+    #: 中国法定节假日（逗号/空白分隔的 YYYY-MM-DD）；这些日期全天按空闲时段计价。
+    peak_holidays: str = ""
 
 
 class BudgetSettings(BaseModel):

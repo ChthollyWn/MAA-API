@@ -5812,10 +5812,16 @@ export interface components {
             name: string;
             /** Price Cached Input */
             price_cached_input?: number | null;
+            /** Price Cached Input Offpeak */
+            price_cached_input_offpeak?: number | null;
             /** Price Input */
             price_input?: number | null;
+            /** Price Input Offpeak */
+            price_input_offpeak?: number | null;
             /** Price Output */
             price_output?: number | null;
+            /** Price Output Offpeak */
+            price_output_offpeak?: number | null;
             /**
              * Provider
              * @default openai_compatible
@@ -5865,10 +5871,16 @@ export interface components {
             model?: string | null;
             /** Price Cached Input */
             price_cached_input?: number | null;
+            /** Price Cached Input Offpeak */
+            price_cached_input_offpeak?: number | null;
             /** Price Input */
             price_input?: number | null;
+            /** Price Input Offpeak */
+            price_input_offpeak?: number | null;
             /** Price Output */
             price_output?: number | null;
+            /** Price Output Offpeak */
+            price_output_offpeak?: number | null;
             /** Provider */
             provider?: ("openai_compatible" | "local_onnx") | null;
             /** Supports Tools */
@@ -5915,10 +5927,16 @@ export interface components {
             name: string;
             /** Price Cached Input */
             price_cached_input: number | null;
+            /** Price Cached Input Offpeak */
+            price_cached_input_offpeak: number | null;
             /** Price Input */
             price_input: number | null;
+            /** Price Input Offpeak */
+            price_input_offpeak: number | null;
             /** Price Output */
             price_output: number | null;
+            /** Price Output Offpeak */
+            price_output_offpeak: number | null;
             /**
              * Provider
              * @enum {string}

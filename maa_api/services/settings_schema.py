@@ -127,6 +127,14 @@ _FIELDS: dict[str, dict[str, Any]] = {
     "llm.role_memory": dict(label="记忆整理使用的模型档案", group="LLM", type="string", description="空表示使用默认档案", hot_action="none"),
     "llm.role_vision": dict(label="视觉使用的模型档案", group="LLM", type="string", description="空表示使用默认档案", hot_action="none"),
     "llm.role_embedding": dict(label="向量使用的模型档案", group="LLM", type="string", description="空表示不使用远端向量", hot_action="none"),
+    # offpeak 峰谷计价（规格 §4.2 第 2 条、§4.4）：default 档案的峰/谷价与法定节假日列表。
+    "llm.price_input": dict(label="高峰时段输入价（缓存未命中）", group="LLM", type="number", minimum=0, maximum=100000, hot_action="none"),
+    "llm.price_cached_input": dict(label="高峰时段输入价（缓存命中）", group="LLM", type="number", minimum=0, maximum=100000, hot_action="none"),
+    "llm.price_output": dict(label="高峰时段输出价", group="LLM", type="number", minimum=0, maximum=100000, hot_action="none"),
+    "llm.price_input_offpeak": dict(label="空闲时段输入价（缓存未命中）", group="LLM", type="number", minimum=0, maximum=100000, hot_action="none"),
+    "llm.price_cached_input_offpeak": dict(label="空闲时段输入价（缓存命中）", group="LLM", type="number", minimum=0, maximum=100000, hot_action="none"),
+    "llm.price_output_offpeak": dict(label="空闲时段输出价", group="LLM", type="number", minimum=0, maximum=100000, hot_action="none"),
+    "llm.peak_holidays": dict(label="峰谷计价的法定节假日", group="LLM", type="string", description="逗号/空白分隔的 YYYY-MM-DD；这些日期全天按空闲时段计价", hot_action="none"),
     # M67 成本预算（元，0 为不限）与上下文窗口兜底值。
     "budget.daily_cost_limit": dict(label="每日模型成本上限（元）", group="LLM", type="number", minimum=0, maximum=100000, description="0 为不限", hot_action="none"),
     "budget.per_run_cost_limit": dict(label="单次运行成本上限（元）", group="LLM", type="number", minimum=0, maximum=10000, description="0 为不限", hot_action="none"),

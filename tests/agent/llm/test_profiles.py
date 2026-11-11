@@ -221,6 +221,217 @@ def test_profile_in_use_cannot_be_deleted_or_disabled() -> None:
 
 
 # ---------------------------------------------------------------------------
+# 峰谷价字段（offpeak 规格 §4.2 第 4 条、§4.4、§4.5）
+# ---------------------------------------------------------------------------
+
+
+def test_default_profile_prices_come_from_settings() -> None:
+    """``default`` 的价格不再固定 None：峰值与空闲价都从 ``llm.price_*`` 合成。"""
+
+    async def scenario() -> None:
+        factory, engine = await _make_factory()
+        try:
+            service = _service(
+                factory,
+                settings=_settings(
+                    price_input=2.0,
+                    price_cached_input=0.04,
+                    price_output=8.0,
+                    price_input_offpeak=1.0,
+                    price_cached_input_offpeak=0.02,
+                    price_output_offpeak=4.0,
+                ),
+            )
+
+            profile = await service.resolve(DEFAULT_PROFILE_NAME)
+            assert (
+                profile.price_input,
+                profile.price_cached_input,
+                profile.price_output,
+            ) == (2.0, 0.04, 8.0)
+            assert (
+                profile.price_input_offpeak,
+                profile.price_cached_input_offpeak,
+                profile.price_output_offpeak,
+            ) == (1.0, 0.02, 4.0)
+
+            view = await service.get_view(DEFAULT_PROFILE_NAME)
+            assert (
+                view.price_input,
+                view.price_cached_input,
+                view.price_output,
+                view.price_input_offpeak,
+                view.price_cached_input_offpeak,
+                view.price_output_offpeak,
+            ) == (2.0, 0.04, 8.0, 1.0, 0.02, 4.0)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_default_profile_offpeak_zero_falls_back_to_none() -> None:
+    """空闲价为 0 表示「未配置、回退高峰价」：合成结果里是 None，不是免费。"""
+
+    async def scenario() -> None:
+        factory, engine = await _make_factory()
+        try:
+            service = _service(
+                factory,
+                settings=_settings(
+                    price_input=2.0,
+                    price_output=8.0,
+                    price_input_offpeak=0.0,
+                    price_cached_input_offpeak=0.0,
+                    price_output_offpeak=4.0,
+                ),
+            )
+
+            profile = await service.resolve(DEFAULT_PROFILE_NAME)
+            assert profile.price_input == 2.0
+            assert profile.price_output == 8.0
+            assert profile.price_input_offpeak is None
+            assert profile.price_cached_input_offpeak is None
+            assert profile.price_output_offpeak == 4.0
+
+            view = await service.get_view(DEFAULT_PROFILE_NAME)
+            assert view.price_input_offpeak is None
+            assert view.price_cached_input_offpeak is None
+            assert view.price_output_offpeak == 4.0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_create_profile_roundtrips_offpeak_prices() -> None:
+    """新建档案可带三个空闲价：视图、进程内解析与落库三列一致。"""
+
+    async def scenario() -> None:
+        factory, engine = await _make_factory()
+        try:
+            service = _service(factory)
+            created = await service.create(
+                _create_payload(
+                    price_input=2.0,
+                    price_cached_input=0.04,
+                    price_output=8.0,
+                    price_input_offpeak=1.0,
+                    price_cached_input_offpeak=0.02,
+                    price_output_offpeak=4.0,
+                )
+            )
+            assert (
+                created.price_input_offpeak,
+                created.price_cached_input_offpeak,
+                created.price_output_offpeak,
+            ) == (1.0, 0.02, 4.0)
+
+            fetched = await service.get_view("worker-a")
+            assert (
+                fetched.price_input_offpeak,
+                fetched.price_cached_input_offpeak,
+                fetched.price_output_offpeak,
+            ) == (1.0, 0.02, 4.0)
+
+            resolved = await service.resolve("worker-a")
+            assert (
+                resolved.price_input_offpeak,
+                resolved.price_cached_input_offpeak,
+                resolved.price_output_offpeak,
+            ) == (1.0, 0.02, 4.0)
+
+            async with factory() as session:
+                row = await ModelProfileRepository(session).get_by_name("worker-a")
+                assert row is not None
+                assert (
+                    row.price_input_offpeak,
+                    row.price_cached_input_offpeak,
+                    row.price_output_offpeak,
+                ) == (1.0, 0.02, 4.0)
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_update_profile_can_clear_offpeak_prices() -> None:
+    """局部更新不动其它空闲价；显式 ``null`` 清空该列（回退高峰价）。"""
+
+    async def scenario() -> None:
+        factory, engine = await _make_factory()
+        try:
+            service = _service(factory)
+            await service.create(
+                _create_payload(
+                    price_input_offpeak=1.0,
+                    price_cached_input_offpeak=0.02,
+                    price_output_offpeak=4.0,
+                )
+            )
+
+            updated = await service.update(
+                "worker-a", ModelProfileUpdate(price_output_offpeak=5.5)
+            )
+            assert updated.price_output_offpeak == 5.5
+            assert updated.price_input_offpeak == 1.0
+            assert updated.price_cached_input_offpeak == 0.02
+
+            cleared = await service.update(
+                "worker-a", ModelProfileUpdate(price_input_offpeak=None)
+            )
+            assert cleared.price_input_offpeak is None
+            assert cleared.price_cached_input_offpeak == 0.02
+            assert cleared.price_output_offpeak == 5.5
+
+            async with factory() as session:
+                row = await ModelProfileRepository(session).get_by_name("worker-a")
+                assert row is not None
+                assert row.price_input_offpeak is None
+                assert row.price_cached_input_offpeak == 0.02
+                assert row.price_output_offpeak == 5.5
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+def test_profile_view_includes_offpeak_prices() -> None:
+    """表里的既有行（三列可为 NULL）经 ``_view_from_row`` 原样出现在视图里。"""
+
+    async def scenario() -> None:
+        from maa_api.db.models import ModelProfile
+
+        factory, engine = await _make_factory()
+        try:
+            async with factory() as session:
+                await ModelProfileRepository(session).create(
+                    ModelProfile(
+                        name="legacy",
+                        base_url=PROFILE_BASE_URL,
+                        model="legacy-model",
+                        price_input=2.0,
+                        price_cached_input=0.04,
+                        price_output=8.0,
+                        price_input_offpeak=1.0,
+                        price_cached_input_offpeak=None,
+                        price_output_offpeak=4.0,
+                    )
+                )
+                await session.commit()
+
+            service = _service(factory)
+            view = await service.get_view("legacy")
+            assert view.price_input_offpeak == 1.0
+            assert view.price_cached_input_offpeak is None
+            assert view.price_output_offpeak == 4.0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
 # 尾部位置探查（docs/v3/06 §2.4）
 # ---------------------------------------------------------------------------
 

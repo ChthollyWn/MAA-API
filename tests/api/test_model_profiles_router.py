@@ -158,6 +158,62 @@ def test_default_profile_is_readonly_and_reserved(isolated_db, make_client, tmp_
     assert fetched.json()["readonly"] is True
 
 
+def test_model_profile_wire_includes_offpeak_prices(
+    isolated_db, make_client, tmp_settings
+):
+    """offpeak 规格 §4.3：default 带 6 个价格字段；CRUD wire 有 3 个空闲价。"""
+    factory = _factory(isolated_db)
+    service = _service(factory)
+    client = _client(make_client, service=service, model_router=ModelRouter(service))
+
+    listed = client.get("/api/agent/model-profiles")
+    assert listed.status_code == 200, listed.text
+    default = listed.json()["items"][0]
+    assert default["name"] == "default"
+    # 峰值价来自 llm.price_*（tmp_settings 用默认 0），空闲价 0 → null。
+    assert default["price_input"] == 0.0
+    assert default["price_cached_input"] == 0.0
+    assert default["price_output"] == 0.0
+    assert default["price_input_offpeak"] is None
+    assert default["price_cached_input_offpeak"] is None
+    assert default["price_output_offpeak"] is None
+
+    created = _create(
+        client,
+        price_input_offpeak=1.0,
+        price_cached_input_offpeak=0.02,
+        price_output_offpeak=4.0,
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["price_input_offpeak"] == 1.0
+    assert body["price_cached_input_offpeak"] == 0.02
+    assert body["price_output_offpeak"] == 4.0
+
+    fetched = client.get("/api/agent/model-profiles/worker-a")
+    assert fetched.status_code == 200, fetched.text
+    assert fetched.json()["price_input_offpeak"] == 1.0
+    assert fetched.json()["price_cached_input_offpeak"] == 0.02
+    assert fetched.json()["price_output_offpeak"] == 4.0
+
+    # 局部更新不动其它两项；显式 null 清空（回退高峰价）。
+    updated = client.put(
+        "/api/agent/model-profiles/worker-a", json={"price_output_offpeak": 5.5}
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["price_output_offpeak"] == 5.5
+    assert updated.json()["price_input_offpeak"] == 1.0
+    assert updated.json()["price_cached_input_offpeak"] == 0.02
+
+    cleared = client.put(
+        "/api/agent/model-profiles/worker-a", json={"price_input_offpeak": None}
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["price_input_offpeak"] is None
+    assert cleared.json()["price_cached_input_offpeak"] == 0.02
+    assert cleared.json()["price_output_offpeak"] == 5.5
+
+
 def test_probe_writes_back_capabilities(isolated_db, make_client, tmp_settings):
     fake = FakeLLM(
         [
