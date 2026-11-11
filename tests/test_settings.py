@@ -1864,8 +1864,14 @@ def test_llm_price_settings_parse_from_config_and_env(
     price_description = (
         "0 表示未配置：输入/输出价按 0 计；缓存命中价未配置时回退同一时段的输入价。"
     )
+    offpeak_description = (
+        "0 表示未配置：输入/输出价回退同一时段的高峰价；"
+        "缓存命中价未配置时回退同一时段的高峰缓存价，仍缺省再回退该时段输入价。"
+    )
+    peak_keys = {"llm.price_input", "llm.price_cached_input", "llm.price_output"}
     for key in keys - {"llm.peak_holidays"}:
         price = schema_for(key)
+        expected = price_description if key in peak_keys else offpeak_description
         assert (
             price["group"],
             price["type"],
@@ -1873,7 +1879,7 @@ def test_llm_price_settings_parse_from_config_and_env(
             price["maximum"],
             price["description"],
             price["hot_action"],
-        ) == ("LLM", "number", 0, 100000, price_description, "none")
+        ) == ("LLM", "number", 0, 100000, expected, "none")
     holidays = schema_for("llm.peak_holidays")
     assert (
         holidays["label"],
