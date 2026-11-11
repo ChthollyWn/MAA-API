@@ -23,6 +23,7 @@ from maa_api.agent.llm.cost import (
     PEAK_TIMEZONE,
     CostLedger,
     compute_cost_micros,
+    compute_cost_micros_at,
     is_peak_time,
     parse_peak_holidays,
 )
@@ -37,6 +38,7 @@ from maa_api.domain.enums import (
     ModelProfileKind,
     ModelProvider,
 )
+from maa_api.settings import LLMSettings, Settings
 
 #: 当前进程的服务器本地时区；``day`` 分组按它计算。
 LOCAL_TZ = datetime.now().astimezone().tzinfo
@@ -396,6 +398,32 @@ def _beijing(
     return datetime(year, month, day, hour, minute, second) - timedelta(hours=8)
 
 
+def test_compute_cost_micros_at_uses_injected_settings() -> None:
+    """``compute_cost_micros_at`` 从注入 settings 的 ``peak_holidays`` 取节假日。"""
+    usage = Usage(prompt_tokens=1000, cached_tokens=400, completion_tokens=200)
+    profile = _profile(
+        price_input=2,
+        price_cached_input=0.5,
+        price_output=8,
+        price_input_offpeak=1,
+        price_cached_input_offpeak=0.25,
+        price_output_offpeak=4,
+    )
+    # 2026-11-11 01:00 UTC = 北京时间周三 09:00，平常落在高峰窗口。
+    at = datetime(2026, 11, 11, 1, 0)
+    holiday = Settings(llm=LLMSettings(peak_holidays="2026-11-11"))
+    plain = Settings(llm=LLMSettings(peak_holidays=""))
+
+    # 注入的节假日列表生效 → 按空闲价 1500，而不是高峰价 3000。
+    assert compute_cost_micros_at(
+        usage, profile, at=at, settings_provider=lambda: holiday
+    ) == 1500
+    # 同一时刻、空节假日列表仍是高峰价，证明结果由 settings 里的列表决定。
+    assert compute_cost_micros_at(
+        usage, profile, at=at, settings_provider=lambda: plain
+    ) == 3000
+
+
 def test_peak_windows_boundaries() -> None:
     """工作日 [09:00,12:00)、[14:00,18:00) 为高峰，两端左闭右开。"""
     assert not is_peak_time(_beijing(2026, 11, 11, 8, 59, 59))
@@ -512,7 +540,13 @@ def test_ledger_records_offpeak_cost() -> None:
         factory, engine = await _make_factory()
         try:
             await _create_run(factory, "run-offpeak")
-            ledger = CostLedger(factory)
+            # 注入空节假日，避免本机 config.yaml 把 2026-11-11 配成节假日。
+            ledger = CostLedger(
+                factory,
+                settings_provider=lambda: Settings(
+                    llm=LLMSettings(peak_holidays="")
+                ),
+            )
             profile = _profile(
                 price_input=2,
                 price_cached_input=0.5,
@@ -562,7 +596,9 @@ def test_ledger_records_offpeak_cost() -> None:
 
             async with factory() as db:
                 rows = (
-                    await db.execute(select(CostLedgerEntry))
+                    await db.execute(
+                        select(CostLedgerEntry).order_by(CostLedgerEntry.id)
+                    )
                 ).scalars().all()
             assert [row.cost_micros for row in rows] == [peak_cost, offpeak_cost]
         finally:

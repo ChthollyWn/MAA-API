@@ -40,7 +40,7 @@ from maa_api.agent.harness.context import (
 )
 from maa_api.agent.harness.middleware import CallNext, Middleware
 from maa_api.agent.harness.toolexec import app_error_wire
-from maa_api.agent.llm.cost import compute_cost_micros
+from maa_api.agent.llm.cost import compute_cost_micros_at
 from maa_api.agent.media import MEDIA_TOOL_NAMES, compact_media_result
 from maa_api.agent.origin import bubble_human_request, settle_human_request
 from maa_api.agent.redaction import redact_remote_data
@@ -918,7 +918,7 @@ class TraceMiddleware(Middleware):
                     resp.upstream_finish_reason
                 ]
             if profile is not None:
-                cost = compute_cost_micros(usage, profile)
+                cost = compute_cost_micros_at(usage, profile, at=end)
                 attributes["maa.cost.micros"] = cost
                 attributes["maa.cost.currency"] = profile.currency
                 currency = ctx.state.get("trace.cost_currency")

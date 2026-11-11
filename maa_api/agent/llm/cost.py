@@ -54,6 +54,7 @@ __all__ = [
     "PEAK_TIMEZONE",
     "PEAK_WINDOWS",
     "compute_cost_micros",
+    "compute_cost_micros_at",
     "is_peak_time",
     "local_day_start",
     "parse_peak_holidays",
@@ -153,6 +154,24 @@ def compute_cost_micros(
     return int(total.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
 
+def compute_cost_micros_at(
+    usage: Usage,
+    profile: ResolvedProfile,
+    *,
+    at: datetime | None = None,
+    settings_provider: Callable[[], Settings] = get_settings,
+) -> int:
+    """``compute_cost_micros`` 的「当前配置」入口：``at`` 缺省 utcnow，节假日取 settings。
+
+    ``CostLedger.record`` 与 ``TraceMiddleware`` 的 ``llm.chat`` span 都走这里，
+    保证 ``docs/v3/10 §4.1`` 的「``Σ cost_ledger`` = ``agent_run.cost_micros`` =
+    ``Σ llm.chat maa.cost.micros``」在峰谷价下仍然成立。
+    """
+    now = at or utcnow()
+    holidays = parse_peak_holidays(settings_provider().llm.peak_holidays)
+    return compute_cost_micros(usage, profile, at=now, holidays=holidays)
+
+
 def _utc_naive(moment: datetime) -> datetime:
     """带时区的时间换成 naive UTC；naive 时间按约定已经是 UTC，原样返回。"""
     if moment.tzinfo is None:
@@ -217,10 +236,6 @@ class CostLedger:
         self._warned_runs: set[str] = set()
         self._warned_day: date | None = None
 
-    def _settings(self) -> Settings:
-        """当前设置快照；每次记账都重新取（热更新的 ``peak_holidays`` 下一次生效）。"""
-        return self._settings_provider()
-
     # ------------------------------------------------------------------
     # 写入
     # ------------------------------------------------------------------
@@ -242,9 +257,12 @@ class CostLedger:
         ``run_with_busy_retry`` 在 SAVEPOINT 里执行一次，成功后由本方法
         ``commit``。``run_id`` 为空或行已不存在时只写账本行。
         """
-        now = at or utcnow()
-        holidays = parse_peak_holidays(self._settings().llm.peak_holidays)
-        cost_micros = compute_cost_micros(usage, profile, at=now, holidays=holidays)
+        cost_micros = compute_cost_micros_at(
+            usage,
+            profile,
+            at=at,
+            settings_provider=self._settings_provider,
+        )
 
         async def operation() -> int:
             await self._write(
