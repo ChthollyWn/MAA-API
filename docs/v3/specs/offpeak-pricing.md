@@ -198,7 +198,7 @@ cost_micros = compute_cost_micros_at(
 )
 ```
 
-`_settings()` 取 `self._settings_provider()`；构造处不传时用默认工厂，`main.py` 无需改动。
+`compute_cost_micros_at` 内部在 `at` 缺省时取 `utcnow()`、用 `settings_provider()` 解析节假日；`CostLedger` 构造处不传 `settings_provider` 时用默认 `get_settings`，`main.py` 无需改动。
 
 4. `maa_api/agent/llm/profiles.py`
 
