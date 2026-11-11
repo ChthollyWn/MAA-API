@@ -245,11 +245,12 @@ git commit -m "feat(offpeak): 档案与 default 支持峰谷价字段与设置�
 
 **Files:**
 - Modify: `maa_api/agent/llm/cost.py`
-- Modify: `tests/agent/llm/test_cost.py`
+- Modify: `maa_api/agent/harness/builtin_middleware.py`
+- Modify: `tests/agent/llm/test_cost.py`、`tests/agent/trace/test_trace_middleware.py`
 
 **Interfaces:**
 - Consumes: Task 3 的 `ResolvedProfile` 三字段、7 个 `llm.*` 配置键。
-- Produces: `PEAK_TIMEZONE`、`PEAK_WINDOWS`、`parse_peak_holidays`、`is_peak_time`、扩展后的 `compute_cost_micros`、`CostLedger(settings_provider=...)` 与 `record(at=...)`。
+- Produces: `PEAK_TIMEZONE`、`PEAK_WINDOWS`、`parse_peak_holidays`、`is_peak_time`、扩展后的 `compute_cost_micros`、`compute_cost_micros_at`（settings 入口）、`CostLedger(settings_provider=...)` 与 `record(at=...)`；`TraceMiddleware` 的 `llm.chat` span 改走 `compute_cost_micros_at`。
 
 - [ ] **Step 1: 写成本引擎的失败测试**
 
@@ -295,9 +296,9 @@ def test_ledger_records_offpeak_cost():
 
 Expected: 非 0。
 
-- [ ] **Step 3: 实现峰谷取价与账本接线**
+- [ ] **Step 3: 实现峰谷取价、账本与 trace 接线**
 
-按 spec §4.2 第 3 条与 §4.5：加常量与三个 helper；`compute_cost_micros` 加 `at`/`holidays` 关键字参数；`CostLedger.__init__` 加 `settings_provider`，`record` 加 `at` 并解析节假日。`main.py` 不改。
+按 spec §4.2 第 3 条、第 5 条与 §4.5：加常量与三个 helper；`compute_cost_micros` 加 `at`/`holidays` 关键字参数；新增 `compute_cost_micros_at`（`at` 缺省 utcnow、节假日取 settings）；`CostLedger.__init__` 加 `settings_provider`，`record` 用 helper；`TraceMiddleware` 的 `llm.chat` span 成本改用 `compute_cost_micros_at(usage, profile, at=end)`。`main.py` 不改。
 
 - [ ] **Step 4: 跑测试确认全绿**
 
