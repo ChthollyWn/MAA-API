@@ -6451,6 +6451,19 @@
             ],
             "title": "Price Cached Input"
           },
+          "price_cached_input_offpeak": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cached Input Offpeak"
+          },
           "price_input": {
             "anyOf": [
               {
@@ -6464,6 +6477,19 @@
             ],
             "title": "Price Input"
           },
+          "price_input_offpeak": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Offpeak"
+          },
           "price_output": {
             "anyOf": [
               {
@@ -6476,6 +6502,19 @@
               }
             ],
             "title": "Price Output"
+          },
+          "price_output_offpeak": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Offpeak"
           },
           "provider": {
             "default": "openai_compatible",
@@ -6674,6 +6713,19 @@
             ],
             "title": "Price Cached Input"
           },
+          "price_cached_input_offpeak": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cached Input Offpeak"
+          },
           "price_input": {
             "anyOf": [
               {
@@ -6687,6 +6739,19 @@
             ],
             "title": "Price Input"
           },
+          "price_input_offpeak": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Offpeak"
+          },
           "price_output": {
             "anyOf": [
               {
@@ -6699,6 +6764,19 @@
               }
             ],
             "title": "Price Output"
+          },
+          "price_output_offpeak": {
+            "anyOf": [
+              {
+                "maximum": 100000.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Offpeak"
           },
           "provider": {
             "anyOf": [
@@ -6865,6 +6943,17 @@
             ],
             "title": "Price Cached Input"
           },
+          "price_cached_input_offpeak": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cached Input Offpeak"
+          },
           "price_input": {
             "anyOf": [
               {
@@ -6876,6 +6965,17 @@
             ],
             "title": "Price Input"
           },
+          "price_input_offpeak": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Offpeak"
+          },
           "price_output": {
             "anyOf": [
               {
@@ -6886,6 +6986,17 @@
               }
             ],
             "title": "Price Output"
+          },
+          "price_output_offpeak": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Offpeak"
           },
           "provider": {
             "enum": [
@@ -6954,6 +7065,9 @@
           "price_input",
           "price_cached_input",
           "price_output",
+          "price_input_offpeak",
+          "price_cached_input_offpeak",
+          "price_output_offpeak",
           "currency",
           "embedding_dim",
           "local_model_path",

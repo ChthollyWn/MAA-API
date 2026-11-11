@@ -678,6 +678,10 @@ class ModelProfile(SQLModel, table=True):
     price_input: float | None = Field(default=None)
     price_cached_input: float | None = Field(default=None)
     price_output: float | None = Field(default=None)
+    #: 空闲时段价格，语义同上面的高峰价；``NULL`` 表示回退高峰价（spec §4.1）。
+    price_input_offpeak: float | None = Field(default=None)
+    price_cached_input_offpeak: float | None = Field(default=None)
+    price_output_offpeak: float | None = Field(default=None)
     currency: str = Field(default="CNY", max_length=8)
     embedding_dim: int | None = Field(default=None)
     local_model_path: str | None = Field(default=None, max_length=255)

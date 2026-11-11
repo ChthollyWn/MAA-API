@@ -144,6 +144,11 @@ class ResolvedProfile:
     price_input: float | None
     price_cached_input: float | None
     price_output: float | None
+    #: 空闲时段价格（offpeak 规格 §4.2 第 4 条）；``None`` 表示回退上面的高峰价。
+    #: 用 ``kw_only`` 是为了在不改动其它构造方的前提下把字段放在价目三元组之后。
+    price_input_offpeak: float | None = field(default=None, kw_only=True)
+    price_cached_input_offpeak: float | None = field(default=None, kw_only=True)
+    price_output_offpeak: float | None = field(default=None, kw_only=True)
     currency: str
     embedding_dim: int | None
     local_model_path: str | None
@@ -191,6 +196,9 @@ class ModelProfileView(BaseModel):
     price_input: float | None
     price_cached_input: float | None
     price_output: float | None
+    price_input_offpeak: float | None
+    price_cached_input_offpeak: float | None
+    price_output_offpeak: float | None
     currency: str
     embedding_dim: int | None
     local_model_path: str | None
@@ -224,6 +232,9 @@ class ModelProfileCreate(BaseModel):
     price_input: float | None = Field(default=None, ge=0, le=100_000)
     price_cached_input: float | None = Field(default=None, ge=0, le=100_000)
     price_output: float | None = Field(default=None, ge=0, le=100_000)
+    price_input_offpeak: float | None = Field(default=None, ge=0, le=100_000)
+    price_cached_input_offpeak: float | None = Field(default=None, ge=0, le=100_000)
+    price_output_offpeak: float | None = Field(default=None, ge=0, le=100_000)
     currency: str = Field(default="CNY", pattern=r"^[A-Z]{3}$")
     embedding_dim: int | None = Field(default=None, ge=1, le=65536)
     local_model_path: str | None = Field(default=None, max_length=255)
@@ -268,6 +279,9 @@ class ModelProfileUpdate(BaseModel):
     price_input: float | None = Field(default=None, ge=0, le=100_000)
     price_cached_input: float | None = Field(default=None, ge=0, le=100_000)
     price_output: float | None = Field(default=None, ge=0, le=100_000)
+    price_input_offpeak: float | None = Field(default=None, ge=0, le=100_000)
+    price_cached_input_offpeak: float | None = Field(default=None, ge=0, le=100_000)
+    price_output_offpeak: float | None = Field(default=None, ge=0, le=100_000)
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
     embedding_dim: int | None = Field(default=None, ge=1, le=65536)
     local_model_path: str | None = Field(default=None, max_length=255)
@@ -302,6 +316,15 @@ def _utc_z(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
+def _unset_price(value: float) -> float | None:
+    """设置里的价格 ``0`` 表示「未配置」，合成时按 ``None`` 输出。
+
+    高峰的输入/输出价 ``None`` 在成本引擎里按 0 计；高峰缓存价 ``None`` 回退同一
+    时段的输入价；空闲价 ``None`` 逐项回退对应高峰价。
+    """
+    return value if value > 0 else None
+
+
 def _view_from_row(row: ModelProfile) -> ModelProfileView:
     return ModelProfileView(
         id=row.id,
@@ -320,6 +343,9 @@ def _view_from_row(row: ModelProfile) -> ModelProfileView:
         price_input=row.price_input,
         price_cached_input=row.price_cached_input,
         price_output=row.price_output,
+        price_input_offpeak=row.price_input_offpeak,
+        price_cached_input_offpeak=row.price_cached_input_offpeak,
+        price_output_offpeak=row.price_output_offpeak,
         currency=row.currency,
         embedding_dim=row.embedding_dim,
         local_model_path=row.local_model_path,
@@ -614,7 +640,11 @@ class ModelProfileService:
     # -- 合成与解析 --------------------------------------------------------
 
     def _synthesize_default(self, settings: Settings) -> ResolvedProfile:
-        """``default`` 档案：连接与模型来自 ``llm.*``，价格与窗口都不设。"""
+        """``default`` 档案：连接与模型来自 ``llm.*``，价格也来自 ``llm.price_*``。
+
+        六个价格设置的 0 都表示「未配置」，合成为 ``None``：高峰输入/输出价在引擎里
+        按 0 计，高峰缓存价回退输入价，空闲价逐项回退高峰价。不把 0 当免费价。
+        """
         base_url = settings.llm.base_url or ""
         model = settings.llm.model
         probe = self._default_probe.get((base_url, model))
@@ -639,9 +669,14 @@ class ModelProfileService:
                 if probe and probe.dynamic_context_position is not None
                 else DynamicContextPosition.TAIL_SYSTEM.value
             ),
-            price_input=None,
-            price_cached_input=None,
-            price_output=None,
+            price_input=_unset_price(settings.llm.price_input),
+            price_cached_input=_unset_price(settings.llm.price_cached_input),
+            price_output=_unset_price(settings.llm.price_output),
+            price_input_offpeak=_unset_price(settings.llm.price_input_offpeak),
+            price_cached_input_offpeak=_unset_price(
+                settings.llm.price_cached_input_offpeak
+            ),
+            price_output_offpeak=_unset_price(settings.llm.price_output_offpeak),
             currency="CNY",
             embedding_dim=None,
             local_model_path=None,
@@ -670,6 +705,9 @@ class ModelProfileService:
             price_input=row.price_input,
             price_cached_input=row.price_cached_input,
             price_output=row.price_output,
+            price_input_offpeak=row.price_input_offpeak,
+            price_cached_input_offpeak=row.price_cached_input_offpeak,
+            price_output_offpeak=row.price_output_offpeak,
             currency=row.currency,
             embedding_dim=row.embedding_dim,
             local_model_path=row.local_model_path,
@@ -719,9 +757,13 @@ class ModelProfileService:
             supports_tools=profile.supports_tools,
             supports_json_schema=profile.supports_json_schema,
             dynamic_context_position=profile.dynamic_context_position,
-            price_input=None,
-            price_cached_input=None,
-            price_output=None,
+            # 6 个价格字段都来自 llm.price_*（合成时已把 0 表示未配置折成 None）。
+            price_input=profile.price_input,
+            price_cached_input=profile.price_cached_input,
+            price_output=profile.price_output,
+            price_input_offpeak=profile.price_input_offpeak,
+            price_cached_input_offpeak=profile.price_cached_input_offpeak,
+            price_output_offpeak=profile.price_output_offpeak,
             currency="CNY",
             embedding_dim=None,
             local_model_path=None,
@@ -774,6 +816,9 @@ class ModelProfileService:
             price_input=payload.price_input,
             price_cached_input=payload.price_cached_input,
             price_output=payload.price_output,
+            price_input_offpeak=payload.price_input_offpeak,
+            price_cached_input_offpeak=payload.price_cached_input_offpeak,
+            price_output_offpeak=payload.price_output_offpeak,
             currency=payload.currency,
             embedding_dim=payload.embedding_dim,
             local_model_path=payload.local_model_path,
@@ -837,6 +882,9 @@ class ModelProfileService:
                 "price_input": row.price_input,
                 "price_cached_input": row.price_cached_input,
                 "price_output": row.price_output,
+                "price_input_offpeak": row.price_input_offpeak,
+                "price_cached_input_offpeak": row.price_cached_input_offpeak,
+                "price_output_offpeak": row.price_output_offpeak,
                 "currency": row.currency,
                 "embedding_dim": row.embedding_dim,
                 "local_model_path": row.local_model_path,
@@ -866,6 +914,9 @@ class ModelProfileService:
             row.price_input = validated.price_input
             row.price_cached_input = validated.price_cached_input
             row.price_output = validated.price_output
+            row.price_input_offpeak = validated.price_input_offpeak
+            row.price_cached_input_offpeak = validated.price_cached_input_offpeak
+            row.price_output_offpeak = validated.price_output_offpeak
             row.currency = validated.currency
             row.embedding_dim = validated.embedding_dim
             row.local_model_path = validated.local_model_path

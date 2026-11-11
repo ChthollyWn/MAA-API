@@ -30,6 +30,9 @@ interface ProfileForm {
   price_input: string
   price_cached_input: string
   price_output: string
+  price_input_offpeak: string
+  price_cached_input_offpeak: string
+  price_output_offpeak: string
   currency: string
   embedding_dim: string
   local_model_path: string
@@ -55,6 +58,9 @@ function initialForm(profile: ModelProfile | null): ProfileForm {
     price_input: numberText(profile?.price_input ?? null),
     price_cached_input: numberText(profile?.price_cached_input ?? null),
     price_output: numberText(profile?.price_output ?? null),
+    price_input_offpeak: numberText(profile?.price_input_offpeak ?? null),
+    price_cached_input_offpeak: numberText(profile?.price_cached_input_offpeak ?? null),
+    price_output_offpeak: numberText(profile?.price_output_offpeak ?? null),
     currency: profile?.currency ?? 'CNY',
     embedding_dim: numberText(profile?.embedding_dim ?? null),
     local_model_path: profile?.local_model_path ?? '',
@@ -87,6 +93,9 @@ function commonFields(form: ProfileForm) {
     price_input: optionalNumber(form.price_input),
     price_cached_input: optionalNumber(form.price_cached_input),
     price_output: optionalNumber(form.price_output),
+    price_input_offpeak: optionalNumber(form.price_input_offpeak),
+    price_cached_input_offpeak: optionalNumber(form.price_cached_input_offpeak),
+    price_output_offpeak: optionalNumber(form.price_output_offpeak),
     currency: form.currency.trim().toUpperCase() || 'CNY',
     embedding_dim: optionalNumber(form.embedding_dim),
     local_model_path: optionalText(form.local_model_path),
@@ -320,6 +329,46 @@ export function ProfileEditorSheet({ open, onOpenChange, profile }: ProfileEdito
             onChange={(event) => change({ price_output: event.target.value })}
           />
         </Field>
+
+        <section aria-labelledby="model-profile-offpeak-title" className="space-y-3">
+          <div className="space-y-0.5">
+            <h3 id="model-profile-offpeak-title" className="text-[0.9375rem] font-semibold">空闲时段价格</h3>
+            <p className="text-footnote text-muted-foreground">留空表示回退高峰价</p>
+          </div>
+
+          <Field label="空闲时段输入价（缓存未命中）" htmlFor="model-profile-price-input-offpeak" description="每百万 token">
+            <Input
+              id="model-profile-price-input-offpeak"
+              value={form.price_input_offpeak}
+              inputMode="decimal"
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => change({ price_input_offpeak: event.target.value })}
+            />
+          </Field>
+
+          <Field label="空闲时段输入价（缓存命中）" htmlFor="model-profile-price-cached-offpeak" description="每百万 token">
+            <Input
+              id="model-profile-price-cached-offpeak"
+              value={form.price_cached_input_offpeak}
+              inputMode="decimal"
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => change({ price_cached_input_offpeak: event.target.value })}
+            />
+          </Field>
+
+          <Field label="空闲时段输出价" htmlFor="model-profile-price-output-offpeak" description="每百万 token">
+            <Input
+              id="model-profile-price-output-offpeak"
+              value={form.price_output_offpeak}
+              inputMode="decimal"
+              disabled={busy}
+              autoComplete="off"
+              onChange={(event) => change({ price_output_offpeak: event.target.value })}
+            />
+          </Field>
+        </section>
 
         <Field label="币种" htmlFor="model-profile-currency" description="只有人民币计入预算">
           <Input

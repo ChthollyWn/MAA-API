@@ -370,6 +370,14 @@ def test_env_mapping_names_are_pinned() -> None:
         "llm.role_memory": "MAA_LLM_ROLE_MEMORY",
         "llm.role_vision": "MAA_LLM_ROLE_VISION",
         "llm.role_embedding": "MAA_LLM_ROLE_EMBEDDING",
+        # offpeak：峰谷计价的 6 个价格键与法定节假日列表（default 档案的价格来源）。
+        "llm.price_input": "MAA_LLM_PRICE_INPUT",
+        "llm.price_cached_input": "MAA_LLM_PRICE_CACHED_INPUT",
+        "llm.price_output": "MAA_LLM_PRICE_OUTPUT",
+        "llm.price_input_offpeak": "MAA_LLM_PRICE_INPUT_OFFPEAK",
+        "llm.price_cached_input_offpeak": "MAA_LLM_PRICE_CACHED_INPUT_OFFPEAK",
+        "llm.price_output_offpeak": "MAA_LLM_PRICE_OUTPUT_OFFPEAK",
+        "llm.peak_holidays": "MAA_LLM_PEAK_HOLIDAYS",
         "budget.daily_cost_limit": "MAA_BUDGET_DAILY_COST_LIMIT",
         "budget.per_run_cost_limit": "MAA_BUDGET_PER_RUN_COST_LIMIT",
         "budget.warn_ratio": "MAA_BUDGET_WARN_RATIO",
@@ -1802,6 +1810,122 @@ def test_model_layer_settings_have_documented_defaults_and_bounds() -> None:
     }
     assert "# 各角色使用的模型档案名（设置页「模型档案」里建），空表示使用上面这组默认设置" in template_text
     assert "# 空表示不使用远端向量" in template_text
+
+
+def test_llm_price_settings_parse_from_config_and_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """offpeak 规格 §4.4：7 个峰谷价键从 yaml 与环境变量解析，范围 0–100000。"""
+    from maa_api.services.settings_schema import SETTINGS_SCHEMA, schema_for
+    from maa_api.settings import CONFIG_ONLY_SETTING_KEYS, LLMSettings
+
+    path = _write(
+        tmp_path,
+        "llm:\n"
+        "  price_input: 2\n"
+        "  price_cached_input: 0.04\n"
+        "  price_output: 8\n"
+        "  price_input_offpeak: 1\n"
+        "  price_cached_input_offpeak: 0.02\n"
+        "  price_output_offpeak: 4\n"
+        "  peak_holidays: 2026-10-01, 2026-10-02\n",
+    )
+    monkeypatch.setenv("MAA_LLM_PRICE_OUTPUT", "12.5")
+    monkeypatch.setenv("MAA_LLM_PEAK_HOLIDAYS", "2026-10-03")
+
+    s = load_settings(path)
+
+    assert s.llm.price_input == 2.0
+    assert s.llm.price_cached_input == 0.04
+    assert s.llm.price_output == 12.5  # 环境变量 > yaml
+    assert s.llm.price_input_offpeak == 1.0
+    assert s.llm.price_cached_input_offpeak == 0.02
+    assert s.llm.price_output_offpeak == 4.0
+    assert s.llm.peak_holidays == "2026-10-03"
+
+    # 价格范围 0–100000（spec §4.4），越界直接校验失败。
+    for bad in (-0.1, 100_000.5):
+        with pytest.raises(ValidationError):
+            Settings(llm=LLMSettings(price_input=bad))
+
+    # 设置 API：6 个价格键都是 number，范围 0–100000，热设置，description 说明 0 语义；
+    # 节假日是 string。
+    keys = {
+        "llm.price_input",
+        "llm.price_cached_input",
+        "llm.price_output",
+        "llm.price_input_offpeak",
+        "llm.price_cached_input_offpeak",
+        "llm.price_output_offpeak",
+        "llm.peak_holidays",
+    }
+    assert keys <= {item["key"] for item in SETTINGS_SCHEMA}
+    assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    price_description = (
+        "0 表示未配置：输入/输出价按 0 计；缓存命中价未配置时回退同一时段的输入价。"
+    )
+    offpeak_description = (
+        "0 表示未配置：输入/输出价回退同一时段的高峰价；"
+        "缓存命中价未配置时回退同一时段的高峰缓存价，仍缺省再回退该时段输入价。"
+    )
+    peak_keys = {"llm.price_input", "llm.price_cached_input", "llm.price_output"}
+    for key in keys - {"llm.peak_holidays"}:
+        price = schema_for(key)
+        expected = price_description if key in peak_keys else offpeak_description
+        assert (
+            price["group"],
+            price["type"],
+            price["minimum"],
+            price["maximum"],
+            price["description"],
+            price["hot_action"],
+        ) == ("LLM", "number", 0, 100000, expected, "none")
+    holidays = schema_for("llm.peak_holidays")
+    assert (
+        holidays["label"],
+        holidays["group"],
+        holidays["type"],
+        holidays["description"],
+        holidays["hot_action"],
+    ) == (
+        "峰谷计价的法定节假日",
+        "LLM",
+        "string",
+        "逗号/空白分隔的 YYYY-MM-DD；这些日期全天按空闲时段计价",
+        "none",
+    )
+
+
+def test_peak_holidays_defaults_empty() -> None:
+    """``llm.peak_holidays`` 默认空串＝没有法定节假日（spec §4.4），模板同步。"""
+    default = resolve_settings(env={})
+
+    assert default.llm.peak_holidays == ""
+    assert default.llm.price_input == 0.0
+    assert default.llm.price_cached_input == 0.0
+    assert default.llm.price_output == 0.0
+    assert default.llm.price_input_offpeak == 0.0
+    assert default.llm.price_cached_input_offpeak == 0.0
+    assert default.llm.price_output_offpeak == 0.0
+
+    configured = resolve_settings(
+        {"llm": {"peak_holidays": "2026-10-01 2026-10-02"}}, env={}
+    )
+    assert configured.llm.peak_holidays == "2026-10-01 2026-10-02"
+
+    # 文档一致性：模板的 7 个键与代码默认值一致，且带中文注释（spec §4.2 第 6 条）。
+    template_text = TEMPLATE_PATH.read_text(encoding="utf8")
+    template = YAML(typ="safe").load(template_text)
+    llm = template["llm"]
+    assert llm["price_input"] == 0
+    assert llm["price_cached_input"] == 0
+    assert llm["price_output"] == 0
+    assert llm["price_input_offpeak"] == 0
+    assert llm["price_cached_input_offpeak"] == 0
+    assert llm["price_output_offpeak"] == 0
+    assert llm["peak_holidays"] is None  # 空值＝未配置，代码默认 ""
+    assert "# 峰谷价（元/百万 token）。高峰：北京时间工作日 9:00-12:00、14:00-18:00；其余为空闲。" in template_text
+    assert "# 中国法定节假日（逗号/空白分隔的 YYYY-MM-DD），这些日期全天按空闲时段计价" in template_text
 
 
 def test_trace_settings_have_documented_defaults_and_bounds() -> None:

@@ -8,6 +8,7 @@ pytest-asyncio），每个场景自建内存库。价格是「每百万 token」
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Any
 
@@ -19,8 +20,12 @@ from sqlmodel import SQLModel
 import maa_api.db.models  # noqa: F401  # 把表注册进 SQLModel.metadata
 from maa_api.agent.llm.cost import (
     BUDGET_CURRENCY,
+    PEAK_TIMEZONE,
     CostLedger,
     compute_cost_micros,
+    compute_cost_micros_at,
+    is_peak_time,
+    parse_peak_holidays,
 )
 from maa_api.agent.llm.profiles import ResolvedProfile
 from maa_api.agent.llm.usage import Usage
@@ -33,6 +38,7 @@ from maa_api.domain.enums import (
     ModelProfileKind,
     ModelProvider,
 )
+from maa_api.settings import LLMSettings, Settings
 
 #: 当前进程的服务器本地时区；``day`` 分组按它计算。
 LOCAL_TZ = datetime.now().astimezone().tzinfo
@@ -56,6 +62,9 @@ def _profile(
     price_input: float | None = None,
     price_cached_input: float | None = None,
     price_output: float | None = None,
+    price_input_offpeak: float | None = None,
+    price_cached_input_offpeak: float | None = None,
+    price_output_offpeak: float | None = None,
 ) -> ResolvedProfile:
     return ResolvedProfile(
         name=name,
@@ -73,6 +82,9 @@ def _profile(
         price_input=price_input,
         price_cached_input=price_cached_input,
         price_output=price_output,
+        price_input_offpeak=price_input_offpeak,
+        price_cached_input_offpeak=price_cached_input_offpeak,
+        price_output_offpeak=price_output_offpeak,
         currency=currency,
         embedding_dim=None,
         local_model_path=None,
@@ -370,6 +382,225 @@ def test_summarize_groups_by_day_agent_model_role() -> None:
                 ("summarizer", 1, 500),
                 ("worker", 2, 300),
             ]
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
+# ---------------------------------------------------------------------------
+# 峰谷计价（offpeak 规格 §4.5）
+# ---------------------------------------------------------------------------
+def _beijing(
+    year: int, month: int, day: int, hour: int, minute: int, second: int = 0
+) -> datetime:
+    """北京时间的 naive 时刻 → naive UTC（项目统一的 UTC 口径）。"""
+    return datetime(year, month, day, hour, minute, second) - timedelta(hours=8)
+
+
+def test_compute_cost_micros_at_uses_injected_settings() -> None:
+    """``compute_cost_micros_at`` 从注入 settings 的 ``peak_holidays`` 取节假日。"""
+    usage = Usage(prompt_tokens=1000, cached_tokens=400, completion_tokens=200)
+    profile = _profile(
+        price_input=2,
+        price_cached_input=0.5,
+        price_output=8,
+        price_input_offpeak=1,
+        price_cached_input_offpeak=0.25,
+        price_output_offpeak=4,
+    )
+    # 2026-11-11 01:00 UTC = 北京时间周三 09:00，平常落在高峰窗口。
+    at = datetime(2026, 11, 11, 1, 0)
+    holiday = Settings(llm=LLMSettings(peak_holidays="2026-11-11"))
+    plain = Settings(llm=LLMSettings(peak_holidays=""))
+
+    # 注入的节假日列表生效 → 按空闲价 1500，而不是高峰价 3000。
+    assert compute_cost_micros_at(
+        usage, profile, at=at, settings_provider=lambda: holiday
+    ) == 1500
+    # 同一时刻、空节假日列表仍是高峰价，证明结果由 settings 里的列表决定。
+    assert compute_cost_micros_at(
+        usage, profile, at=at, settings_provider=lambda: plain
+    ) == 3000
+
+
+def test_peak_windows_boundaries() -> None:
+    """工作日 [09:00,12:00)、[14:00,18:00) 为高峰，两端左闭右开。"""
+    assert not is_peak_time(_beijing(2026, 11, 11, 8, 59, 59))
+    assert is_peak_time(_beijing(2026, 11, 11, 9, 0))
+    assert not is_peak_time(_beijing(2026, 11, 11, 12, 0))
+    assert not is_peak_time(_beijing(2026, 11, 11, 13, 59, 59))
+    assert is_peak_time(_beijing(2026, 11, 11, 14, 0))
+    assert not is_peak_time(_beijing(2026, 11, 11, 18, 0))
+
+    # 带 +08:00 的时间按同一本地时刻判断；naive 按 UTC 解释（同一用例已覆盖）。
+    assert is_peak_time(datetime(2026, 11, 11, 9, 0, tzinfo=PEAK_TIMEZONE))
+    assert not is_peak_time(
+        datetime(2026, 11, 11, 8, 59, 59, tzinfo=PEAK_TIMEZONE)
+    )
+
+
+def test_weekend_is_offpeak() -> None:
+    """周六/周日任意时刻都是空闲时段。"""
+    assert not is_peak_time(_beijing(2026, 11, 14, 10, 0))  # 周六
+    assert not is_peak_time(_beijing(2026, 11, 15, 10, 0))  # 周日
+
+
+def test_holiday_is_offpeak() -> None:
+    """节假日列表里的日期全天按空闲时段。"""
+    holidays = frozenset({date(2026, 11, 11)})
+    assert not is_peak_time(_beijing(2026, 11, 11, 10, 0), holidays=holidays)
+    # 不在列表里的前一个工作日同一时刻仍是高峰。
+    assert is_peak_time(_beijing(2026, 11, 10, 10, 0), holidays=holidays)
+
+
+def test_offpeak_prices_fallback_per_component() -> None:
+    """空闲价逐项回退：缺哪项用对应高峰价；峰价全空、谷价有值时高峰成本 0。"""
+    usage = Usage(prompt_tokens=1000, cached_tokens=400, completion_tokens=200)
+    peak_at = _beijing(2026, 11, 11, 9, 0)
+    offpeak_at = _beijing(2026, 11, 11, 12, 0)
+
+    # 只配输出谷价：输入/缓存回退峰价 → 600×2 + 400×0.5 + 200×4 = 2200。
+    only_output_offpeak = _profile(
+        price_input=2,
+        price_cached_input=0.5,
+        price_output=8,
+        price_output_offpeak=4,
+    )
+    assert compute_cost_micros(usage, only_output_offpeak, at=offpeak_at) == 2200
+    # 同一档案在高峰用峰价 → 600×2 + 400×0.5 + 200×8 = 3000。
+    assert compute_cost_micros(usage, only_output_offpeak, at=peak_at) == 3000
+
+    # 谷价全为 None 时与只配峰价完全一致（空闲时段也不例外）。
+    peak_only = _profile(price_input=2, price_cached_input=0.5, price_output=8)
+    assert compute_cost_micros(usage, peak_only, at=offpeak_at) == 3000
+    assert compute_cost_micros(usage, peak_only, at=offpeak_at) == (
+        compute_cost_micros(usage, peak_only)
+    )
+
+    # 三项谷价都配置时按谷价 → 600×1 + 400×0.25 + 200×4 = 1500。
+    full_offpeak = _profile(
+        price_input=2,
+        price_cached_input=0.5,
+        price_output=8,
+        price_input_offpeak=1,
+        price_cached_input_offpeak=0.25,
+        price_output_offpeak=4,
+    )
+    assert compute_cost_micros(usage, full_offpeak, at=offpeak_at) == 1500
+    assert compute_cost_micros(usage, full_offpeak, at=peak_at) == 3000
+
+    # 高峰价全 None、谷价有值：高峰时段成本 0，空闲时段按谷价。
+    offpeak_only = _profile(
+        price_input_offpeak=1,
+        price_cached_input_offpeak=0.25,
+        price_output_offpeak=4,
+    )
+    assert compute_cost_micros(usage, offpeak_only, at=peak_at) == 0
+    assert compute_cost_micros(usage, offpeak_only, at=offpeak_at) == 1500
+
+
+def test_compute_without_at_keeps_peak_semantics() -> None:
+    """不传 ``at`` 时保持旧公式：全部按高峰价，结果与旧版完全一致。"""
+    usage = Usage(prompt_tokens=1000, cached_tokens=400, completion_tokens=200)
+    profile = _profile(
+        price_input=2,
+        price_cached_input=0.5,
+        price_output=8,
+        price_input_offpeak=1,
+        price_cached_input_offpeak=0.25,
+        price_output_offpeak=4,
+    )
+
+    # M67 公式：600×2 + 400×0.5 + 200×8 = 3000。
+    assert compute_cost_micros(usage, profile) == 3000
+    assert compute_cost_micros(usage, profile) == compute_cost_micros(
+        usage, profile, at=_beijing(2026, 11, 11, 9, 0)
+    )
+
+
+def test_parse_peak_holidays_skips_invalid(caplog) -> None:
+    """逗号/空白分隔；非法项 warning 后跳过，重复项忽略，不抛异常。"""
+    raw = "2026-11-11, 2026-11-12\n 2027-01-01, not-a-date, 2026-13-01,,2026-11-11"
+
+    with caplog.at_level(logging.WARNING, logger="maa_api.agent.llm.cost"):
+        holidays = parse_peak_holidays(raw)
+
+    assert holidays == frozenset(
+        {date(2026, 11, 11), date(2026, 11, 12), date(2027, 1, 1)}
+    )
+    assert len(caplog.records) == 2
+    assert parse_peak_holidays("") == frozenset()
+    assert parse_peak_holidays("  \n\t ") == frozenset()
+
+
+def test_ledger_records_offpeak_cost() -> None:
+    """账本按记账时刻取价：北京时间 09:00 高峰、12:00 空闲各记一行。"""
+    async def scenario() -> None:
+        factory, engine = await _make_factory()
+        try:
+            await _create_run(factory, "run-offpeak")
+            # 注入空节假日，避免本机 config.yaml 把 2026-11-11 配成节假日。
+            ledger = CostLedger(
+                factory,
+                settings_provider=lambda: Settings(
+                    llm=LLMSettings(peak_holidays="")
+                ),
+            )
+            profile = _profile(
+                price_input=2,
+                price_cached_input=0.5,
+                price_output=8,
+                price_input_offpeak=1,
+                price_cached_input_offpeak=0.25,
+                price_output_offpeak=4,
+            )
+            usage = Usage(
+                prompt_tokens=1000, cached_tokens=400, completion_tokens=200
+            )
+
+            async def run_cost() -> int:
+                async with factory() as db:
+                    run = (
+                        await db.execute(
+                            select(AgentRun).where(AgentRun.id == "run-offpeak")
+                        )
+                    ).scalar_one()
+                return run.cost_micros
+
+            # 2026-11-11 01:00 UTC = 北京时间周三 09:00（高峰）→ 3000。
+            peak_cost = await ledger.record(
+                run_id="run-offpeak",
+                session_id=None,
+                agent_name="legacy_chat",
+                role="worker",
+                profile=profile,
+                usage=usage,
+                at=datetime(2026, 11, 11, 1, 0),
+            )
+            assert peak_cost == 3000
+            assert await run_cost() == peak_cost
+
+            # 2026-11-11 04:00 UTC = 北京时间周三 12:00（空闲）→ 1500。
+            offpeak_cost = await ledger.record(
+                run_id="run-offpeak",
+                session_id=None,
+                agent_name="legacy_chat",
+                role="worker",
+                profile=profile,
+                usage=usage,
+                at=datetime(2026, 11, 11, 4, 0),
+            )
+            assert offpeak_cost == 1500
+            assert await run_cost() == peak_cost + offpeak_cost
+
+            async with factory() as db:
+                rows = (
+                    await db.execute(
+                        select(CostLedgerEntry).order_by(CostLedgerEntry.id)
+                    )
+                ).scalars().all()
+            assert [row.cost_micros for row in rows] == [peak_cost, offpeak_cost]
         finally:
             await engine.dispose()
 

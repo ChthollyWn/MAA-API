@@ -11,7 +11,7 @@ import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -20,6 +20,9 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+import maa_api.agent.llm.cost as cost_module
+import maa_api.settings as settings_module
+from maa_api.agent.harness import builtin_middleware
 from maa_api.agent.harness.builtin_middleware import TraceMiddleware
 from maa_api.agent.harness.context import (
     ModelRequest,
@@ -30,7 +33,11 @@ from maa_api.agent.harness.context import (
     ToolOutcome,
     Usage,
 )
-from maa_api.agent.llm.cost import CostLedger
+from maa_api.agent.llm.cost import (
+    CostLedger,
+    compute_cost_micros,
+    compute_cost_micros_at,
+)
 from maa_api.agent.llm.profiles import ResolvedProfile
 from maa_api.agent.registry import ToolDefinition, ToolRegistry, ToolRisk
 from maa_api.agent.runtime import AgentRuntime
@@ -78,6 +85,9 @@ def _profile(
     name: str = "worker-a",
     model: str = "worker-model",
     max_output_tokens: int | None = 2048,
+    price_input_offpeak: float | None = None,
+    price_cached_input_offpeak: float | None = None,
+    price_output_offpeak: float | None = None,
 ) -> ResolvedProfile:
     return ResolvedProfile(
         name=name,
@@ -95,6 +105,9 @@ def _profile(
         price_input=2.0,
         price_cached_input=1.0,
         price_output=4.0,
+        price_input_offpeak=price_input_offpeak,
+        price_cached_input_offpeak=price_cached_input_offpeak,
+        price_output_offpeak=price_output_offpeak,
         currency="CNY",
         embedding_dim=None,
         local_model_path=None,
@@ -420,6 +433,125 @@ def test_llm_span_costs_add_up_to_the_run_total(tmp_path: Path) -> None:
             assert root.attributes["maa.cost.micros"] == run.cost_micros
             assert root.attributes["gen_ai.usage.input_tokens"] == 150
             assert root.attributes["gen_ai.usage.output_tokens"] == 30
+
+    asyncio.run(scenario())
+
+
+def test_llm_span_cost_uses_offpeak_prices_in_offpeak_window(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """``llm.chat`` span 按结束时刻取峰谷价，节假日来自当前 settings。"""
+    fixed_end = datetime(2026, 11, 11, 4, 0)  # 北京时间周三 12:00，空闲时段
+    monkeypatch.setattr(builtin_middleware, "utcnow", lambda: fixed_end)
+    # 中间件漏传 ``at`` 时 helper 会退回自己的 utcnow；钉在高峰时刻让漏传必失败。
+    monkeypatch.setattr(
+        cost_module, "utcnow", lambda: datetime(2026, 11, 11, 2, 0)
+    )
+    # helper 的默认 settings 入口读进程缓存；注入空节假日，避免本机 config.yaml 干扰。
+    monkeypatch.setattr(settings_module, "_CACHE", _settings(enabled=True))
+
+    async def scenario() -> None:
+        async with _harness(tmp_path) as (recorder, factory, app):
+            ctx = _ctx(app)
+            await _create_run(factory, ctx.run_id)
+            profile = _profile(
+                price_input_offpeak=1.0,
+                price_cached_input_offpeak=0.5,
+                price_output_offpeak=2.0,
+            )
+            ctx.state["model"] = {"profile": profile}
+            middleware = TraceMiddleware()
+            await middleware.on_run_start(ctx)
+            await middleware.before_model(ctx, _request())
+            usage = Usage(
+                prompt_tokens=1000, cached_tokens=400, completion_tokens=200
+            )
+            await middleware.after_model(ctx, _response(usage=usage))
+            await middleware.on_run_end(
+                ctx,
+                RunOutcome(status="succeeded", finish_reason="stop", usage=usage),
+            )
+            await recorder.flush()
+
+            llm = _by_name(await _spans(factory), "llm.chat")[0]
+            expected = compute_cost_micros_at(
+                usage,
+                profile,
+                at=fixed_end,
+                settings_provider=lambda: _settings(enabled=True),
+            )
+            peak = compute_cost_micros(usage, profile)
+            # 谷价 600×1 + 400×0.5 + 200×2 = 1200；峰价同用量 600×2 + 400×1 +
+            # 200×4 = 2400，两者必须不同。
+            assert (expected, peak) == (1200, 2400)
+            assert llm.attributes["maa.cost.micros"] == expected
+
+    asyncio.run(scenario())
+
+
+def test_llm_span_cost_uses_holiday_offpeak_prices_on_peak_weekday(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """工作日高峰时刻若在 ``llm.peak_holidays`` 里，span 仍按空闲价计费。
+
+    ``compute_cost_micros_at`` 的 ``settings_provider`` 缺省在调用时解析，所以这里
+    monkeypatch ``maa_api.agent.llm.cost.get_settings`` 就能注入节假日；若默认参数
+    仍是导入时绑定的函数对象，这个用例会读到进程缓存、断言失败。
+    """
+    fixed_end = datetime(2026, 11, 11, 2, 0)  # 北京时间周三 10:00，工作日高峰
+    monkeypatch.setattr(builtin_middleware, "utcnow", lambda: fixed_end)
+
+    def _holiday_settings() -> Settings:
+        return Settings(
+            trace=TraceSettings(enabled=True),
+            llm=LLMSettings(
+                base_url="https://llm.test/v1",
+                api_key="test-key",
+                model="test-model",
+                price_input=2.0,
+                price_cached_input=1.0,
+                price_output=4.0,
+                price_input_offpeak=1.0,
+                price_cached_input_offpeak=0.5,
+                price_output_offpeak=2.0,
+                peak_holidays="2026-11-11",
+            ),
+        )
+
+    monkeypatch.setattr(cost_module, "get_settings", _holiday_settings)
+
+    async def scenario() -> None:
+        async with _harness(tmp_path) as (recorder, factory, app):
+            ctx = _ctx(app)
+            await _create_run(factory, ctx.run_id)
+            profile = _profile(
+                price_input_offpeak=1.0,
+                price_cached_input_offpeak=0.5,
+                price_output_offpeak=2.0,
+            )
+            ctx.state["model"] = {"profile": profile}
+            middleware = TraceMiddleware()
+            await middleware.on_run_start(ctx)
+            await middleware.before_model(ctx, _request())
+            usage = Usage(
+                prompt_tokens=1000, cached_tokens=400, completion_tokens=200
+            )
+            await middleware.after_model(ctx, _response(usage=usage))
+            await middleware.on_run_end(
+                ctx,
+                RunOutcome(status="succeeded", finish_reason="stop", usage=usage),
+            )
+            await recorder.flush()
+
+            llm = _by_name(await _spans(factory), "llm.chat")[0]
+            peak = compute_cost_micros(usage, profile, at=fixed_end)
+            offpeak = compute_cost_micros(
+                usage, profile, at=fixed_end, holidays={date(2026, 11, 11)}
+            )
+            # 同一用量与时刻：不放假是峰价 600×2 + 400×1 + 200×4 = 2400，
+            # 列入节假日后按谷价 600×1 + 400×0.5 + 200×2 = 1200。
+            assert (peak, offpeak) == (2400, 1200)
+            assert llm.attributes["maa.cost.micros"] == offpeak
 
     asyncio.run(scenario())
 
