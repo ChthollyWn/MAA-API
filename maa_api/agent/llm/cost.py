@@ -11,6 +11,11 @@
 计费不重复加。价格用 ``Decimal(str(x))`` 计算再 ``ROUND_HALF_UP`` 取整，避免
 二进制浮点在 .5 附近把成本算少 1 micros。
 
+峰谷取价按 DeepSeek 官方规则（offpeak 规格 §4.5）：北京时间工作日 9:00–12:00、
+14:00–18:00 为高峰，其余时段（含周末与 ``llm.peak_holidays`` 里的节假日）为空闲；
+空闲时段优先用 ``price_*_offpeak``，某项为 ``None`` 时回退对应高峰价。``at`` 为空
+时全部按高峰价，保持 M67 直接调用方的旧语义。
+
 :class:`CostLedger` 是成本写入的唯一入口：每次模型调用记一行 ``cost_ledger``，
 同时把四个 token 列、币种与成本累计进 ``agent_run``。仓储不提交事务，本类负责
 事务边界：一次 ``record`` 是一个事务，写锁竞争经 ``run_with_busy_retry`` 重试。
@@ -24,10 +29,11 @@ from __future__ import annotations
 
 import logging
 from collections import Counter
-from collections.abc import Callable, Sequence
-from datetime import UTC, date, datetime
+from collections.abc import Callable, Collection, Sequence
+from datetime import UTC, date, datetime, time
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from pydantic import BaseModel
 from sqlalchemy import func, select
@@ -38,14 +44,19 @@ from maa_api.agent.llm.usage import Usage
 from maa_api.db.models import AgentRun, CostLedgerEntry, utcnow
 from maa_api.db.repositories.cost import CostLedgerRepository
 from maa_api.db.session import run_with_busy_retry
+from maa_api.settings import Settings, get_settings
 
 __all__ = [
     "BUDGET_CURRENCY",
     "CostGroupView",
     "CostLedger",
     "CostSummaryView",
+    "PEAK_TIMEZONE",
+    "PEAK_WINDOWS",
     "compute_cost_micros",
+    "is_peak_time",
     "local_day_start",
+    "parse_peak_holidays",
 ]
 
 logger = logging.getLogger(__name__)
@@ -55,29 +66,89 @@ BUDGET_CURRENCY = "CNY"
 #: 分组汇总支持的四种口径；``day`` 按服务器本地日期，其余按账本列。
 GROUP_BY_CHOICES = ("day", "agent", "model", "role")
 
+#: DeepSeek 官方峰谷规则（offpeak 规格 §4.5）：北京时间工作日两个高峰窗口。
+PEAK_TIMEZONE = ZoneInfo("Asia/Shanghai")
+PEAK_WINDOWS: tuple[tuple[time, time], ...] = (
+    (time(9, 0), time(12, 0)),
+    (time(14, 0), time(18, 0)),
+)
+
 
 def _decimal(value: float | None) -> Decimal:
     """价格按十进制字面值参与计算；``None`` 视为 0（没配价格的项不计费）。"""
     return Decimal(str(value)) if value is not None else Decimal(0)
 
 
-def compute_cost_micros(usage: Usage, profile: ResolvedProfile) -> int:
+def parse_peak_holidays(raw: str) -> frozenset[date]:
+    """解析 ``llm.peak_holidays``；非法片段记 warning 后跳过。
+
+    逗号与空白都是分隔符；空串得到空集合，重复日期自动去重。
+    """
+    holidays: set[date] = set()
+    for token in raw.replace(",", " ").split():
+        try:
+            holidays.add(date.fromisoformat(token))
+        except ValueError:
+            logger.warning("峰谷计价：忽略非法的法定节假日日期 %r", token)
+    return frozenset(holidays)
+
+
+def is_peak_time(at: datetime, *, holidays: Collection[date] = ()) -> bool:
+    """``at`` 是 naive UTC（项目口径）或带时区时间；转成北京时间判断。
+
+    高峰 = 周一至周五、本地时间落在任一 :data:`PEAK_WINDOWS` 窗口（左闭右开）、
+    且本地日期不在 ``holidays`` 里；周末与节假日整天为空闲。
+    """
+    moment = at.replace(tzinfo=UTC) if at.tzinfo is None else at
+    local = moment.astimezone(PEAK_TIMEZONE)
+    if local.weekday() >= 5 or local.date() in holidays:
+        return False
+    clock = local.time()
+    return any(start <= clock < end for start, end in PEAK_WINDOWS)
+
+
+def compute_cost_micros(
+    usage: Usage,
+    profile: ResolvedProfile,
+    *,
+    at: datetime | None = None,
+    holidays: Collection[date] = (),
+) -> int:
     """一次模型调用的成本（micros）；价格全空时为 0。
 
-    缓存命中部分优先用 ``price_cached_input``，没配则退回 ``price_input``；
-    ``cached_tokens`` 理论上恒 ≤ ``prompt_tokens``，这里仍取 ``max(..., 0)``，
-    负的未命中数量不会变成负数成本。
+    ``at`` 为空时按高峰价（保持既有调用方语义）；否则按峰谷取价，空闲项为
+    ``None`` 时逐项回退到对应高峰价。缓存命中部分优先用（当前时段的）缓存价，
+    没配则退回同时段的输入价；``cached_tokens`` 理论上恒 ≤ ``prompt_tokens``，
+    这里仍取 ``max(..., 0)``，负的未命中数量不会变成负数成本。
     """
+    if at is None or is_peak_time(at, holidays=holidays):
+        price_input = profile.price_input
+        price_cached_input = profile.price_cached_input
+        price_output = profile.price_output
+    else:
+        price_input = (
+            profile.price_input_offpeak
+            if profile.price_input_offpeak is not None
+            else profile.price_input
+        )
+        price_cached_input = (
+            profile.price_cached_input_offpeak
+            if profile.price_cached_input_offpeak is not None
+            else profile.price_cached_input
+        )
+        price_output = (
+            profile.price_output_offpeak
+            if profile.price_output_offpeak is not None
+            else profile.price_output
+        )
     cached_price = (
-        profile.price_cached_input
-        if profile.price_cached_input is not None
-        else profile.price_input
+        price_cached_input if price_cached_input is not None else price_input
     )
     uncached_prompt = max(usage.prompt_tokens - usage.cached_tokens, 0)
     total = (
-        Decimal(uncached_prompt) * _decimal(profile.price_input)
+        Decimal(uncached_prompt) * _decimal(price_input)
         + Decimal(usage.cached_tokens) * _decimal(cached_price)
-        + Decimal(usage.completion_tokens) * _decimal(profile.price_output)
+        + Decimal(usage.completion_tokens) * _decimal(price_output)
     )
     return int(total.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
 
@@ -127,6 +198,8 @@ class CostLedger:
 
     ``session_factory`` 由装配层注入（生产是 ``db.session.session_factory``）；
     ``broadcast`` 用于预算告警，签名与 ``ws_manager.broadcast`` 一致，缺省不广播。
+    ``settings_provider`` 提供峰谷计价需要的设置快照（``llm.peak_holidays``），
+    缺省是进程内缓存入口 :func:`get_settings`，``main.py`` 不需要改装配。
     """
 
     def __init__(
@@ -134,13 +207,19 @@ class CostLedger:
         session_factory: async_sessionmaker[AsyncSession],
         *,
         broadcast: Callable[[str, Any], Any] | None = None,
+        settings_provider: Callable[[], Settings] = get_settings,
     ) -> None:
         self._session_factory = session_factory
         self._broadcast = broadcast
+        self._settings_provider = settings_provider
         # 同一运行 / 同一天只告警一次（规格 §4.2.5）。运行集合只在真正告警时增长，
         # 进程生命周期内最多一条运行一个 id；日告警只保留最近一天。
         self._warned_runs: set[str] = set()
         self._warned_day: date | None = None
+
+    def _settings(self) -> Settings:
+        """当前设置快照；每次记账都重新取（热更新的 ``peak_holidays`` 下一次生效）。"""
+        return self._settings_provider()
 
     # ------------------------------------------------------------------
     # 写入
@@ -154,13 +233,18 @@ class CostLedger:
         role: str,
         profile: ResolvedProfile,
         usage: Usage,
+        at: datetime | None = None,
     ) -> int:
         """记一行账本，并把用量累计进 ``agent_run``；返回本次 ``cost_micros``。
 
-        事务纪律：整个操作经 ``run_with_busy_retry`` 在 SAVEPOINT 里执行一次，
-        成功后由本方法 ``commit``。``run_id`` 为空或行已不存在时只写账本行。
+        ``at`` 是这次调用发生的时刻（naive UTC 或带时区）：缺省取记账时的
+        :func:`utcnow`，按它判断峰谷并取价。事务纪律：整个操作经
+        ``run_with_busy_retry`` 在 SAVEPOINT 里执行一次，成功后由本方法
+        ``commit``。``run_id`` 为空或行已不存在时只写账本行。
         """
-        cost_micros = compute_cost_micros(usage, profile)
+        now = at or utcnow()
+        holidays = parse_peak_holidays(self._settings().llm.peak_holidays)
+        cost_micros = compute_cost_micros(usage, profile, at=now, holidays=holidays)
 
         async def operation() -> int:
             await self._write(
