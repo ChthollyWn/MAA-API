@@ -59,6 +59,7 @@ MAA_LLM_PRICE_OUTPUT_OFFPEAK=4 .venv/bin/python /tmp/offpeak_t6_manual.py
 - 迁移三列在 SQLite 的物理列序位于表尾（原生 `ADD COLUMN` 固有行为），模型字段序仍在 `price_output` 后；迁移测试只断言列定义与既有列不变，不断言物理列序。
 - 03 §1 的「当前 head」顺带从过时的 `0040_question_expiry_historical` 更新为 `0044_offpeak_prices`（迁移文档同步的一部分）。
 - 15 重新生成后没有 diff，因此提交不带 15 的改动；`web/openapi.json` 与 `web/src/types/api.d.ts` 同理。
+- 最终复审 fix wave（2026-11-11）：六个 `llm.price_*` 的 0 统一按未配置折成 `None`（缓存命中价回退同一时段输入价，不再按 0 计），补齐设置说明与 `price_cached_input` 的 `NULL` 语义，并让 `compute_cost_micros_at` 的 settings 入口延迟解析以便测试节假日路径；细节与验证证据见 SDD 台账 `task-6-report.md` 的「Final-review fix wave」。
 
 ## 偏离（已记 13 §8.187）
 

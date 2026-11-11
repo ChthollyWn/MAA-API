@@ -113,7 +113,7 @@ def downgrade() -> None:
 
 SQLite 3.35+ 支持原生 `ADD COLUMN`/`DROP COLUMN`，这三列没有约束、索引或触发器，不需要 batch 重建。03 §2 加迁移行；03 §4.2 的 `model_profile` 表加一行：
 
-| `price_input_offpeak`、`price_cached_input_offpeak`、`price_output_offpeak` | float? | 空闲时段价格，语义同 `price_*`；`NULL` 表示回退高峰价 |
+| `price_input_offpeak`、`price_cached_input_offpeak`、`price_output_offpeak` | float? | 空闲时段价格，语义同 `price_*`；`NULL` 表示逐项回退对应高峰价 |
 | `price_*`（peak 三列） | 说明补一句：**高峰时段价格**（原来只写“每百万 token 的价格”） |
 
 M91–M98 在 03 §2 与 12 §2 里的建议迁移号从 `0044`–`0048` 顺延为 `0045`–`0049`（本补丁先于它们执行），并在 03 §2 表格下注一句。
@@ -176,7 +176,7 @@ def compute_cost_micros_at(
     profile: ResolvedProfile,
     *,
     at: datetime | None = None,
-    settings_provider: Callable[[], Settings] = get_settings,
+    settings_provider: Callable[[], Settings] | None = None,
 ) -> int:
     """``compute_cost_micros`` 的“当前配置”入口：``at`` 缺省 utcnow，节假日取 settings。
 
@@ -185,7 +185,7 @@ def compute_cost_micros_at(
     ``Σ llm.chat maa.cost.micros``」在峰谷价下仍然成立。"""
 ```
 
-选价规则（逐项回退）：`at` 为 `None` 或 `is_peak_time(at, holidays=...)` 为真 → 用 `price_input`/`price_cached_input`/`price_output`；否则用 `price_input_offpeak` 等，某项为 `None` 时回退对应高峰价。高峰价 `None` 继续按 0 计（既有行为）。
+选价规则（逐项回退）：`at` 为 `None` 或 `is_peak_time(at, holidays=...)` 为真 → 用 `price_input`/`price_cached_input`/`price_output`；否则用 `price_input_offpeak` 等，某项为 `None` 时回退对应高峰价。`price_input`/`price_output` 为 `None` 时按 0 计（既有行为），`price_cached_input` 为 `None` 时回退同一时段的输入价、不按 0 计。
 
 `CostLedger.__init__` 加 `settings_provider: Callable[[], Settings] = get_settings`；`record(..., at: datetime | None = None)` 内：
 
@@ -198,15 +198,15 @@ cost_micros = compute_cost_micros_at(
 )
 ```
 
-`compute_cost_micros_at` 内部在 `at` 缺省时取 `utcnow()`、用 `settings_provider()` 解析节假日；`CostLedger` 构造处不传 `settings_provider` 时用默认 `get_settings`，`main.py` 无需改动。
+`compute_cost_micros_at` 内部在 `at` 缺省时取 `utcnow()`、用 `settings_provider()` 解析节假日；`settings_provider` 缺省为 `None`，调用时才解析成 `get_settings`（不在导入时绑定函数对象，测试可 monkeypatch 注入节假日）。`CostLedger` 构造处不传 `settings_provider` 时用默认 `get_settings`，`main.py` 无需改动。
 
 4. `maa_api/agent/llm/profiles.py`
 
 - `ResolvedProfile` 加三个 `float | None` 字段（放在 `price_output` 后）。
 - `ModelProfileView` 加三个 `float | None` 字段；`ModelProfileCreate` 与 `ModelProfileUpdate` 各加三个 `float | None = Field(default=None, ge=0, le=100_000)`。
 - `_view_from_row`、`_resolved_from_row`、`create`、`update` 的字段清单与赋值同步加三个字段。
-- `_synthesize_default`：`price_*` 取 `settings.llm.price_*`（float，不再固定 `None`）；`price_*_offpeak` 取 `settings.llm.price_*_offpeak`，**为 0 时置 `None`**（0 表示“未配置，回退高峰价”，避免峰价被 0 覆盖）。
-- `_default_view`：同样从 settings 取 6 个价格字段（`price_*` 原样、`price_*_offpeak` 0→None），`readonly=True` 不变。
+- `_synthesize_default`：六个价格都取 `settings.llm.price_*`，**为 0 时置 `None`**（0 表示“未配置”：高峰输入/输出价 `None` 在引擎里按 0 计，高峰缓存价 `None` 回退输入价，空闲价 `None` 逐项回退高峰价）；不再把高峰价的 0 原样传下去，避免缓存命中按 0 计费。
+- `_default_view`：同样从 settings 取 6 个价格字段（六个键的 0 都折成 `None`），`readonly=True` 不变。
 
 5. `maa_api/agent/harness/builtin_middleware.py`：`TraceMiddleware` 的 `llm.chat` span 成本从 `compute_cost_micros(usage, profile)` 改为 `compute_cost_micros_at(usage, profile, at=end)`（`end` 即该 span 的结束时刻），节假日取默认 settings；这样 span 的 `maa.cost.micros`/`trace.cost_micros` 与账本在峰谷价下同口径。
 
@@ -216,7 +216,9 @@ cost_micros = compute_cost_micros_at(
 
 ```yaml
   # 峰谷价（元/百万 token）。高峰：北京时间工作日 9:00-12:00、14:00-18:00；其余为空闲。
-  # 空闲价留空/0 时回退高峰价。DeepSeek deepseek-flash 官方价示例见 docs/10 §4。
+  # 0 表示未配置：输入/输出价按 0 计；缓存命中价未配置时回退同一时段的输入价；
+  # 空闲价未配置时回退高峰价。
+  # DeepSeek deepseek-flash 官方价示例见 docs/v3/10-可观测与评测.md §4.5。
   price_input: 0
   price_cached_input: 0
   price_output: 0
@@ -246,12 +248,12 @@ cost_micros = compute_cost_micros_at(
 
 | 键 | 类型 | 默认 | 范围 | 说明 |
 |---|---|---|---|---|
-| `llm.price_input` | number | 0 | 0–100000 | 高峰时段输入价（缓存未命中），元/百万 token |
-| `llm.price_cached_input` | number | 0 | 0–100000 | 高峰时段输入价（缓存命中） |
-| `llm.price_output` | number | 0 | 0–100000 | 高峰时段输出价 |
-| `llm.price_input_offpeak` | number | 0 | 0–100000 | 空闲时段输入价（缓存未命中）；0 表示回退高峰价 |
-| `llm.price_cached_input_offpeak` | number | 0 | 0–100000 | 空闲时段输入价（缓存命中）；0 表示回退 |
-| `llm.price_output_offpeak` | number | 0 | 0–100000 | 空闲时段输出价；0 表示回退 |
+| `llm.price_input` | number | 0 | 0–100000 | 高峰时段输入价（缓存未命中），元/百万 token；0 表示未配置 |
+| `llm.price_cached_input` | number | 0 | 0–100000 | 高峰时段输入价（缓存命中）；0 表示未配置，回退同一时段的输入价 |
+| `llm.price_output` | number | 0 | 0–100000 | 高峰时段输出价；0 表示未配置 |
+| `llm.price_input_offpeak` | number | 0 | 0–100000 | 空闲时段输入价（缓存未命中）；0 表示未配置，回退高峰价 |
+| `llm.price_cached_input_offpeak` | number | 0 | 0–100000 | 空闲时段输入价（缓存命中）；0 表示未配置，逐项回退（缓存价缺失时再回退同时段输入价） |
+| `llm.price_output_offpeak` | number | 0 | 0–100000 | 空闲时段输出价；0 表示未配置，回退高峰价 |
 | `llm.peak_holidays` | string | 空 | — | 中国法定节假日日期，逗号/空白分隔的 `YYYY-MM-DD`；这些日期全天按空闲时段计价 |
 
 配置键 144 → **151**；config-only 仍 13。`config.template.yaml` 按 §4.2 第 6 条加注释片段；`tests/test_settings.py` 的 `ENV_OVERRIDES` 加 7 项（`MAA_LLM_PRICE_INPUT` 等）。
@@ -260,8 +262,8 @@ cost_micros = compute_cost_micros_at(
 
 - **时段判定**：`at` 为 naive datetime 时按 UTC（项目统一口径）解释，先转 `Asia/Shanghai`；带时区时间直接转换。高峰 = 周一至周五（`weekday() < 5`）、本地时间落在 `[09:00,12:00)` 或 `[14:00,18:00)`、且本地日期不在 `holidays` 集合里。周六/周日整天、节假日整天为空闲。
 - **节假日解析**：`parse_peak_holidays("")` → 空集合；按逗号与空白切分；每项 `date.fromisoformat`；非法项 `logger.warning` 后跳过；重复忽略。
-- **取价**：高峰/空闲各三元组；空闲项为 `None` 时逐项回退到高峰项；高峰项为 `None` 时按 0 计（与 M67 一致）；`at=None` 时全部按高峰价（既有直接调用方与测试的语义不变）。
-- **默认档案合成**：`price_input/price_cached_input/price_output` 取 `settings.llm` 的三个 float（默认 0.0）；`price_*_offpeak` 取对应设置，值为 0 时置 `None`（回退高峰价）。`ModelProfileView` 的 `default` 项展示这 6 个值。
+- **取价**：高峰/空闲各三元组；空闲项为 `None` 时逐项回退到高峰项；`price_input`/`price_output` 为 `None` 时按 0 计（与 M67 一致），`price_cached_input` 为 `None` 时回退同一时段的输入价、不按 0 计；`at=None` 时全部按高峰价（既有直接调用方与测试的语义不变）。
+- **默认档案合成**：六个价格都取 `settings.llm` 的对应 float（默认 0.0），值为 0 时置 `None`（0 表示未配置：高峰输入/输出价按 0 计，高峰缓存价回退输入价，空闲价逐项回退高峰价）。`ModelProfileView` 的 `default` 项展示这 6 个值。
 - **自定义档案**：三列可空；API 传 `null` 清空；不传保持原值（`ModelProfileUpdate` 的 `model_fields_set` 规则不变）。
 - **trace 与账本一致**：`CostLedger.record` 与 `TraceMiddleware` 的 `llm.chat` span 都调用 `compute_cost_micros_at`；前者用记账时刻、后者用 span 结束时刻，两者都在同一次模型调用结束后数毫秒内，跨峰谷窗口边界的那一瞬间可能各取一个 tier（一次调用级差异），其余情况同值。
 - **账本**：`CostLedger.record` 在计算成本前解析一次节假日；`cost_micros` 仍写入 `cost_ledger` 行并累计进 `agent_run`；`GET /api/agent/costs`、M99 看板的成本口径不变，只汇总已有 micros。
@@ -278,7 +280,7 @@ cost_micros = compute_cost_micros_at(
 | 空闲价只配输出价 → 输入/缓存项回退高峰价，输出用空闲价 |
 | 高峰价全 `None`、空闲价有值 → 高峰时段成本 0、空闲时段按空闲价 |
 | `llm.peak_holidays` 有语法错误日期 → 跳过该项并 warning，其余照常 |
-| `default` 档案 `price_input_offpeak` 设置为 0 → 视作未配置（回退高峰价），不当作免费 |
+| `default` 档案任一 `llm.price_*` 设置为 0 → 视作未配置（高峰输入/输出价按 0 计、高峰缓存价回退输入价、空闲价逐项回退高峰价），不当作免费 |
 | 历史 `cost_ledger` 行 → 不改写 |
 | 直接调用 `compute_cost_micros(usage, profile)`（不传 `at`） → 行为与旧版完全一致 |
 
@@ -342,12 +344,12 @@ cost_micros = compute_cost_micros_at(
 | 文件 | 用例名 | 断言要点 |
 |---|---|---|
 | `tests/db/test_offpeak_prices_migration.py` | `test_upgrade_adds_three_nullable_price_columns`、`test_downgrade_drops_them_and_reupgrade_is_empty` | `model_profile` 列名/类型/可空；既有列原样；降级删列；再升级三列为 NULL |
-| `tests/agent/llm/test_profiles.py` | `test_default_profile_prices_come_from_settings`、`test_default_profile_offpeak_zero_falls_back_to_none`、`test_create_profile_roundtrips_offpeak_prices`、`test_update_profile_can_clear_offpeak_prices`、`test_profile_view_includes_offpeak_prices` | settings → default view；0→None；CRUD 三字段；`null` 清空 |
+| `tests/agent/llm/test_profiles.py` | `test_default_profile_prices_come_from_settings`、`test_default_profile_offpeak_zero_falls_back_to_none`、`test_default_profile_peak_zero_falls_back_to_none`、`test_create_profile_roundtrips_offpeak_prices`、`test_update_profile_can_clear_offpeak_prices`、`test_profile_view_includes_offpeak_prices` | settings → default view；6 个价格键的 0 都→None；CRUD 三字段；`null` 清空 |
 | `tests/test_settings.py` | 既有 + `test_llm_price_settings_parse_from_config_and_env`、`test_peak_holidays_defaults_empty` | 7 键可解析、范围校验、`ENV_OVERRIDES` 可覆盖 |
 | `tests/api/`（模型档案路由） | `test_model_profile_wire_includes_offpeak_prices` | 创建/读取/更新的 wire 字段名与类型 |
 | `tests/agent/llm/test_cost.py` | `test_compute_cost_micros_at_uses_injected_settings`、`test_peak_windows_boundaries`、`test_weekend_is_offpeak`、`test_holiday_is_offpeak`、`test_offpeak_prices_fallback_per_component`、`test_compute_without_at_keeps_peak_semantics`、`test_parse_peak_holidays_skips_invalid`、`test_ledger_records_offpeak_cost` | §4.5 的表格逐行；账本行与 `agent_run.cost_micros` 等于当次成本 |
 | `web/src/features/models/models.test.tsx` | 既有 + `submits offpeak prices in create and update payloads` | 表单回填与提交 body 三字段 |
-| `tests/agent/trace/test_trace_middleware.py` | `test_llm_span_cost_uses_offpeak_prices_in_offpeak_window` | 固定时钟 + 注入 settings 的节假日；span 的 `maa.cost.micros` 与同参数 `compute_cost_micros_at` 相等 |
+| `tests/agent/trace/test_trace_middleware.py` | `test_llm_span_cost_uses_offpeak_prices_in_offpeak_window`、`test_llm_span_cost_uses_holiday_offpeak_prices_on_peak_weekday` | 固定时钟 + 注入 settings 的节假日；span 的 `maa.cost.micros` 与同参数 `compute_cost_micros_at` 相等；工作日高峰时刻列入 `llm.peak_holidays` 后按空闲价而非高峰价 |
 | 既有门禁 | `tests/db/test_models.py`、`tests/domain/test_route_inventory.py`、`tests/domain/test_errors.py`、`tests/test_settings.py` 的计数 | 表 61、端点 200、错误码 174 不变；配置键 151/13 |
 
 ## 7. 验收

@@ -304,6 +304,73 @@ def test_default_profile_offpeak_zero_falls_back_to_none() -> None:
     asyncio.run(scenario())
 
 
+def test_default_profile_peak_zero_falls_back_to_none() -> None:
+    """高峰价 0 也表示「未配置」：合成结果里是 None，不把缓存命中按 0 计费。"""
+
+    async def scenario() -> None:
+        factory, engine = await _make_factory()
+        try:
+            service = _service(
+                factory,
+                settings=_settings(
+                    price_input=0.0,
+                    price_cached_input=0.0,
+                    price_output=0.0,
+                    price_input_offpeak=1.0,
+                    price_cached_input_offpeak=0.02,
+                    price_output_offpeak=4.0,
+                ),
+            )
+
+            profile = await service.resolve(DEFAULT_PROFILE_NAME)
+            # 三个高峰价设置都是 0 → 三价 None；非 0 的空闲价照常保留，只有 0 折成 None。
+            assert (
+                profile.price_input,
+                profile.price_cached_input,
+                profile.price_output,
+            ) == (None, None, None)
+            assert (
+                profile.price_input_offpeak,
+                profile.price_cached_input_offpeak,
+                profile.price_output_offpeak,
+            ) == (1.0, 0.02, 4.0)
+
+            view = await service.get_view(DEFAULT_PROFILE_NAME)
+            assert (
+                view.price_input,
+                view.price_cached_input,
+                view.price_output,
+            ) == (None, None, None)
+            assert (
+                view.price_input_offpeak,
+                view.price_cached_input_offpeak,
+                view.price_output_offpeak,
+            ) == (1.0, 0.02, 4.0)
+        finally:
+            await engine.dispose()
+
+        # 「只配输入/输出、缓存命中留 0」：缓存价合成为 None（引擎回退输入价），
+        # 输入/输出价仍保留。
+        factory, engine = await _make_factory()
+        try:
+            service = _service(
+                factory,
+                settings=_settings(
+                    price_input=2.0,
+                    price_cached_input=0.0,
+                    price_output=8.0,
+                ),
+            )
+            profile = await service.resolve(DEFAULT_PROFILE_NAME)
+            assert profile.price_input == 2.0
+            assert profile.price_cached_input is None
+            assert profile.price_output == 8.0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(scenario())
+
+
 def test_create_profile_roundtrips_offpeak_prices() -> None:
     """新建档案可带三个空闲价：视图、进程内解析与落库三列一致。"""
 

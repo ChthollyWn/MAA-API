@@ -170,10 +170,10 @@ def test_model_profile_wire_includes_offpeak_prices(
     assert listed.status_code == 200, listed.text
     default = listed.json()["items"][0]
     assert default["name"] == "default"
-    # 峰值价来自 llm.price_*（tmp_settings 用默认 0），空闲价 0 → null。
-    assert default["price_input"] == 0.0
-    assert default["price_cached_input"] == 0.0
-    assert default["price_output"] == 0.0
+    # 峰值价与空闲价都来自 llm.price_*（tmp_settings 用默认 0），0 表示未配置 → null。
+    assert default["price_input"] is None
+    assert default["price_cached_input"] is None
+    assert default["price_output"] is None
     assert default["price_input_offpeak"] is None
     assert default["price_cached_input_offpeak"] is None
     assert default["price_output_offpeak"] is None

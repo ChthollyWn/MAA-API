@@ -159,16 +159,20 @@ def compute_cost_micros_at(
     profile: ResolvedProfile,
     *,
     at: datetime | None = None,
-    settings_provider: Callable[[], Settings] = get_settings,
+    settings_provider: Callable[[], Settings] | None = None,
 ) -> int:
     """``compute_cost_micros`` 的「当前配置」入口：``at`` 缺省 utcnow，节假日取 settings。
 
     ``CostLedger.record`` 与 ``TraceMiddleware`` 的 ``llm.chat`` span 都走这里，
     保证 ``docs/v3/10 §4.1`` 的「``Σ cost_ledger`` = ``agent_run.cost_micros`` =
     ``Σ llm.chat maa.cost.micros``」在峰谷价下仍然成立。
+
+    ``settings_provider`` 缺省在调用时解析成 :func:`get_settings`（不在导入时绑定
+    函数对象），测试可以 monkeypatch ``maa_api.agent.llm.cost.get_settings``。
     """
     now = at or utcnow()
-    holidays = parse_peak_holidays(settings_provider().llm.peak_holidays)
+    provider = settings_provider or get_settings
+    holidays = parse_peak_holidays(provider().llm.peak_holidays)
     return compute_cost_micros(usage, profile, at=now, holidays=holidays)
 
 

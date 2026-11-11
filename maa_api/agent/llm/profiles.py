@@ -316,8 +316,12 @@ def _utc_z(value: datetime | None) -> str | None:
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 
 
-def _offpeak_price(value: float) -> float | None:
-    """设置里的空闲价 ``0`` 表示「未配置，回退高峰价」，合成时按 ``None`` 输出。"""
+def _unset_price(value: float) -> float | None:
+    """设置里的价格 ``0`` 表示「未配置」，合成时按 ``None`` 输出。
+
+    高峰的输入/输出价 ``None`` 在成本引擎里按 0 计；高峰缓存价 ``None`` 回退同一
+    时段的输入价；空闲价 ``None`` 逐项回退对应高峰价。
+    """
     return value if value > 0 else None
 
 
@@ -638,7 +642,8 @@ class ModelProfileService:
     def _synthesize_default(self, settings: Settings) -> ResolvedProfile:
         """``default`` 档案：连接与模型来自 ``llm.*``，价格也来自 ``llm.price_*``。
 
-        空闲价 0 表示未配置，合成为 ``None``（回退高峰价），避免把峰价覆盖成免费。
+        六个价格设置的 0 都表示「未配置」，合成为 ``None``：高峰输入/输出价在引擎里
+        按 0 计，高峰缓存价回退输入价，空闲价逐项回退高峰价。不把 0 当免费价。
         """
         base_url = settings.llm.base_url or ""
         model = settings.llm.model
@@ -664,14 +669,14 @@ class ModelProfileService:
                 if probe and probe.dynamic_context_position is not None
                 else DynamicContextPosition.TAIL_SYSTEM.value
             ),
-            price_input=settings.llm.price_input,
-            price_cached_input=settings.llm.price_cached_input,
-            price_output=settings.llm.price_output,
-            price_input_offpeak=_offpeak_price(settings.llm.price_input_offpeak),
-            price_cached_input_offpeak=_offpeak_price(
+            price_input=_unset_price(settings.llm.price_input),
+            price_cached_input=_unset_price(settings.llm.price_cached_input),
+            price_output=_unset_price(settings.llm.price_output),
+            price_input_offpeak=_unset_price(settings.llm.price_input_offpeak),
+            price_cached_input_offpeak=_unset_price(
                 settings.llm.price_cached_input_offpeak
             ),
-            price_output_offpeak=_offpeak_price(settings.llm.price_output_offpeak),
+            price_output_offpeak=_unset_price(settings.llm.price_output_offpeak),
             currency="CNY",
             embedding_dim=None,
             local_model_path=None,
@@ -752,7 +757,7 @@ class ModelProfileService:
             supports_tools=profile.supports_tools,
             supports_json_schema=profile.supports_json_schema,
             dynamic_context_position=profile.dynamic_context_position,
-            # 6 个价格字段都来自 llm.price_*（合成时已把空闲价 0 折成 None）。
+            # 6 个价格字段都来自 llm.price_*（合成时已把 0 表示未配置折成 None）。
             price_input=profile.price_input,
             price_cached_input=profile.price_cached_input,
             price_output=profile.price_output,

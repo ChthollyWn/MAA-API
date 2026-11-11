@@ -1848,7 +1848,8 @@ def test_llm_price_settings_parse_from_config_and_env(
         with pytest.raises(ValidationError):
             Settings(llm=LLMSettings(price_input=bad))
 
-    # 设置 API：6 个价格键都是 number，范围 0–100000，热设置；节假日是 string。
+    # 设置 API：6 个价格键都是 number，范围 0–100000，热设置，description 说明 0 语义；
+    # 节假日是 string。
     keys = {
         "llm.price_input",
         "llm.price_cached_input",
@@ -1860,6 +1861,9 @@ def test_llm_price_settings_parse_from_config_and_env(
     }
     assert keys <= {item["key"] for item in SETTINGS_SCHEMA}
     assert not (keys & CONFIG_ONLY_SETTING_KEYS)
+    price_description = (
+        "0 表示未配置：输入/输出价按 0 计；缓存命中价未配置时回退同一时段的输入价。"
+    )
     for key in keys - {"llm.peak_holidays"}:
         price = schema_for(key)
         assert (
@@ -1867,8 +1871,9 @@ def test_llm_price_settings_parse_from_config_and_env(
             price["type"],
             price["minimum"],
             price["maximum"],
+            price["description"],
             price["hot_action"],
-        ) == ("LLM", "number", 0, 100000, "none")
+        ) == ("LLM", "number", 0, 100000, price_description, "none")
     holidays = schema_for("llm.peak_holidays")
     assert (
         holidays["label"],

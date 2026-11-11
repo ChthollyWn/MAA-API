@@ -63,6 +63,14 @@ def _columns(conn: sqlite3.Connection, table: str) -> dict[str, tuple[str, bool]
     }
 
 
+def _defaults(conn: sqlite3.Connection, table: str) -> dict[str, object]:
+    """列名 → DDL 默认值（``pragma table_info.dflt_value``，无默认时是 ``None``）。"""
+    return {
+        row["name"]: row["dflt_value"]
+        for row in conn.execute(f"pragma table_info({table})")
+    }
+
+
 def _row(conn: sqlite3.Connection, profile_id: str) -> sqlite3.Row:
     row = conn.execute(
         "select * from model_profile where id = ?", (profile_id,)
@@ -120,10 +128,12 @@ def test_upgrade_adds_three_nullable_price_columns(tmp_path: Path) -> None:
             for name, spec in columns.items()
             if name not in EXPECTED_NEW_COLUMNS
         } == baseline
-        # 三列类型 FLOAT、可空。SQLite 原生 ADD COLUMN 追加在表尾，物理顺序
-        # 与模型字段顺序（price_output 之后）不同，只断言列定义。
+        # 三列类型 FLOAT、可空、无默认值。SQLite 原生 ADD COLUMN 追加在表尾，物理
+        # 顺序与模型字段顺序（price_output 之后）不同，只断言列定义。
+        defaults = _defaults(conn, "model_profile")
         for name, expected in EXPECTED_NEW_COLUMNS.items():
             assert columns[name] == expected, name
+            assert defaults[name] is None, name
         # 不回填：既有行保留，既有价格列的值原样，新增三列为 NULL。
         row = _row(conn, "preexisting")
         assert row["name"] == "既有档案"
@@ -202,8 +212,10 @@ def test_downgrade_drops_them_and_reupgrade_is_empty(tmp_path: Path) -> None:
     try:
         assert _revision(conn) == HEAD_REVISION
         columns = _columns(conn, "model_profile")
+        defaults = _defaults(conn, "model_profile")
         for name, expected in EXPECTED_NEW_COLUMNS.items():
             assert columns[name] == expected, name
+            assert defaults[name] is None, name
         assert conn.execute("select count(*) from model_profile").fetchone()[0] == 1
         row = _row(conn, "preexisting")
         assert row["price_input"] == 1.5

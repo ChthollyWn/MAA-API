@@ -180,7 +180,9 @@ llm:
   # 空表示不使用远端向量
   role_embedding:
   # 峰谷价（元/百万 token）。高峰：北京时间工作日 9:00-12:00、14:00-18:00；其余为空闲。
-  # 空闲价留空/0 时回退高峰价。DeepSeek deepseek-flash 官方价示例见 docs/10 §4。
+  # 0 表示未配置：输入/输出价按 0 计；缓存命中价未配置时回退同一时段的输入价；
+  # 空闲价未配置时回退高峰价。
+  # DeepSeek deepseek-flash 官方价示例见 docs/v3/10-可观测与评测.md §4.5。
   price_input: 0
   price_cached_input: 0
   price_output: 0
