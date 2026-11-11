@@ -85,4 +85,14 @@ MAA_LLM_PRICE_OUTPUT_OFFPEAK=4 .venv/bin/python /tmp/offpeak_t6_manual.py
 - 合并树与分支 HEAD `25fa7e3` 相同（merge commit 只多合并信息），分支上控制器最终验收：全量 pytest exit 1、仅 3 条基线环境失败；前端 install/typecheck/test/build 全 0（125 files/1067 tests）；`frontend_smoke`/`agent_smoke` `SMOKE OK`；regression replay 5/5 `EVAL OK`；OpenAPI/`gen:api` check 0；`generate_api_guide` gen/check 0；doc links `BROKEN 0`；`git diff --check` 0。
 - 合并后 dev 复跑：`dump_openapi --check` 0、`pnpm gen:api:check` 0、`tests/domain/test_route_inventory.py`+`tests/domain/test_errors.py`、`check_doc_links` 0（见 `/tmp/offpeak-postmerge-*.log`）。
 - 最终整支复审 Verdict **With fixes**（无 Critical/Important 功能缺陷）；final fix wave `d85b6ab` + 控制器 `25fa7e3` 全部落地并被 scoped re-review 判 ADDRESSED；剩余 Minor 见「遗留」。
-- 配置字段 `default` 六价格：本机 `config.yaml` 已填 DeepSeek 官方峰谷价（峰值 input 2 / cached 0.04 / output 8，谷值 1 / 0.02 / 4）并重启服务验证（控制器执行，见最终汇报）；该动作不属于仓库改动。
+- 配置字段 `default` 六价格：本机 `config.yaml` 已填 DeepSeek 官方峰谷价（峰值 input 2 / cached 0.04 / output 8，谷值 1 / 0.02 / 4）并重启服务验证（launchd 旧 pid 73525 → 新 pid 27468）：`GET /api/agent/model-profiles` 的 `default` 返回 6 个价格（2 / 0.04 / 8；1 / 0.02 / 4，CNY），`GET /api/settings` 的 7 个键 `source=yaml`；固定用量 100 万 prompt（缓存 10 万）+ 10 万 completion 的验证值为高峰 2,604,000 micros、空闲 1,302,000 micros。该动作不属于仓库改动。
+
+## SDD 执行明细（摘自 progress.md）
+
+- Task 1: complete（commits `301238e`）— spec/plan 入库；基线快检通过，全量 pytest 基线待补记
+- Task 2: complete（commits `301238e`..`de05205`，review Approved，0 Critical/Important）。Minor 延后：迁移测试未断言 pragma dflt_value 为 NULL。开发库已迁到 0044（备份 /tmp/maa_api.db.offpeak-t2.bak）；模型物理列序在表尾（SQLite 固有）。
+- Task 3: complete（commits `de05205`..`1a6ba95`，review Approved，0 Critical/Important）。Minor 延后：一处测试内局部导入。实现细节裁决：`ResolvedProfile` 三字段用 `kw_only=True`（不改写范围外 15 个构造），`_default_view` 复用 `_synthesize_default`；配置键 151/13。
+- Task 4: 实现 + fix round 1（commits `1a6ba95`..`4ec18b3`）；review 指出 Important：trace `llm.chat` span 成本未走峰谷（docs/10 §4.1 等式会破），控制器判定为计划级缺口，扩展 spec/plan（`05ec089`）并派修复；`4ec18b3` 新增 `compute_cost_micros_at`，账本与 TraceMiddleware 共用，补了 trace 空闲时段用例与账本注入测试。scoped re-review 判定 ADDRESSED、无新 Critical/Important（commits `1a6ba95`..`4ec18b3` 含控制器 spec 补充 `05ec089` 与残句修正）。
+- Task 4: complete（review Approved + fix round 1/5 ADDRESSED，0 open）。Minor 延后：test_ledger 环境隔离已修、warning 放大未缓存、insert 顺序依赖已加 order_by。
+- Task 5: complete（commits `f6eedbf`..`d4de61b`，review Approved，0 Critical/Important）。Minor 延后：hint 未与输入 aria 关联、测试未断言标题/hint、mock PUT 无 404 分支。
+- Task 6: complete（commits `d4de61b`..`ae954d3`，docs/台账/验收）；最终整支复审 Verdict **With fixes**（无 Critical/Important 功能缺陷；2 条 Important：docs 的 cached NULL 语义写错、六个价格设置 0 语义静默少计）。final fix wave `d85b6ab`（默认档案六项 0→None、设置说明、docs 校正、trace 节假日测试、迁移 dflt_value、16/specs README 随车）；scoped re-review 全部 ADDRESSED，剩 1 条 Minor（空闲价设置说明与峰价共用文案不准确）由控制器修 `25fa7e3`。Lead 最终验收（HEAD `25fa7e3`）：全量 pytest 仅 3 条基线环境失败；OpenAPI/typecheck/test/build/smoke/eval/doc links 全过（细节见台账）。
