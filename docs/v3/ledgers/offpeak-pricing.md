@@ -1,6 +1,6 @@
 # 模型峰谷计价（台账）
 
-- 分支：`offpeak-pricing`；基点：`dev` = `31c1fa7`；合并：`<由控制器填写>`
+- 分支：`offpeak-pricing`；基点：`dev` = `31c1fa7`；合并：`2fd28c8`（`--no-ff`）
 - spec：[offpeak-pricing](../specs/offpeak-pricing.md)
 - 计划：[offpeak-pricing](../plans/offpeak-pricing.md)
 
@@ -8,7 +8,7 @@
 
 - 数据：`model_profile` 加三个可空列 `price_input_offpeak`/`price_cached_input_offpeak`/`price_output_offpeak`（`NULL` 回退高峰价），迁移 `0044_offpeak_prices`（`down_revision=0043_capability_insights`，可逆）；业务表仍 61。
 - 配置：`LLMSettings` 加 6 个峰谷价与 `llm.peak_holidays` 共 7 个键，`SETTING_KEYS` 144 → **151**（config-only 仍 13），`_FIELDS` 渲染在 LLM 分组，`config.template.yaml` 同步注释。
-- 档案：`ResolvedProfile`/`ModelProfileView`/`ModelProfileCreate`/`ModelProfileUpdate`/`_view_from_row`/`_resolved_from_row`/`create`/`update` 同步；`default` 档案六个价格改由 `llm.*` 读取（空闲价 0 视作未配置返回 `null`），仍只读、不入表；自定义档案三列 `null` 清空、不传保持原值。
+- 档案：`ResolvedProfile`/`ModelProfileView`/`ModelProfileCreate`/`ModelProfileUpdate`/`_view_from_row`/`_resolved_from_row`/`create`/`update` 同步；`default` 档案六个价格改由 `llm.*` 读取（六个值 0 均视作未配置返回 `null`：峰价 input/output 按 0、cached 回退同段 input；谷价逐项回退峰价），仍只读、不入表；自定义档案三列 `null` 清空、不传保持原值。
 - 成本引擎：`PEAK_TIMEZONE`（`Asia/Shanghai`）、`PEAK_WINDOWS`（工作日 `[09:00,12:00)`、`[14:00,18:00)`）、`parse_peak_holidays`、`is_peak_time`；`compute_cost_micros` 加 `at`/`holidays`，空闲项逐项回退高峰价，`at=None` 保持旧语义（全按高峰价）；新增 `compute_cost_micros_at` 作为“当前配置”入口；`CostLedger.__init__` 注入 `settings_provider`、`record` 加 `at`；trace 的 `llm.chat` span 成本与账本共用 `compute_cost_micros_at`（span 用结束时刻，账本用记账时刻）。
 - 前端：`ProfileEditorSheet` 在三个高峰价后加「空闲时段价格」三个输入（label 与「留空表示回退高峰价」说明按 spec），`initialForm`/`commonFields`/创建与更新请求体同步；`models.test.tsx` 覆盖回填与提交。
 - 契约文档：03 §2 加 0044 行并把 M91–M98 顺延为 0045–0049、§4.1 加三列与「高峰时段价格」；04 §2.1 加六个价格字段、§6 加 7 行与 151/13 计数；10 §4.1/§4.5 补峰谷规则、DeepSeek 官方价表（2026-11-11 抓取）、trace/账本同口径与历史不回填；11 §9 补档案编辑器三输入与 LLM 分组 7 项；12 §2 顺延迁移号并注明补丁不占 M 号；13 新增 §8.187；14 的 POST 请求字段枚举补三字段；15 由 `scripts/generate_api_guide.py` 重新生成（无 diff）；README 未改（无维护性补丁索引位）。
@@ -77,3 +77,12 @@ MAA_LLM_PRICE_OUTPUT_OFFPEAK=4 .venv/bin/python /tmp/offpeak_t6_manual.py
 - 前序任务延后的 Minor：迁移测试未断言 `dflt_value` 为 `NULL`；一处测试内局部导入；空闲价 hint 未与输入 `aria` 关联、测试未断言标题/hint；mock PUT 无 404 分支。
 - 首跑噪声（安静环境复跑未复现）：与前端 build/smoke 并行时，`tests/api/test_orchestrator_e2e.py::test_second_message_during_orchestrator_run_streams_both_turns` 在 teardown 报 `sqlite3.OperationalError: database is locked`（ERROR，非断言失败）；该单测复跑通过（8.19s）。同一次首跑因台账尚未创建出现 2 条 `test_doc_links` 失败，建台账后消失。
 - `scripts/agent_smoke.py` 首次与全量 pytest 并行时，诊断 Worker 的 10 秒轮询窗口内没有 Fake LLM 往返；安静重跑 `SMOKE OK`。
+
+
+## 合并后复验（dev，2026-11-11 17:2x）
+
+- 合并提交 `2fd28c8`（`--no-ff`），分支 `offpeak-pricing` 已删；`dev` 领先 `origin/dev` 12 个提交；未 push。
+- 合并树与分支 HEAD `25fa7e3` 相同（merge commit 只多合并信息），分支上控制器最终验收：全量 pytest exit 1、仅 3 条基线环境失败；前端 install/typecheck/test/build 全 0（125 files/1067 tests）；`frontend_smoke`/`agent_smoke` `SMOKE OK`；regression replay 5/5 `EVAL OK`；OpenAPI/`gen:api` check 0；`generate_api_guide` gen/check 0；doc links `BROKEN 0`；`git diff --check` 0。
+- 合并后 dev 复跑：`dump_openapi --check` 0、`pnpm gen:api:check` 0、`tests/domain/test_route_inventory.py`+`tests/domain/test_errors.py`、`check_doc_links` 0（见 `/tmp/offpeak-postmerge-*.log`）。
+- 最终整支复审 Verdict **With fixes**（无 Critical/Important 功能缺陷）；final fix wave `d85b6ab` + 控制器 `25fa7e3` 全部落地并被 scoped re-review 判 ADDRESSED；剩余 Minor 见「遗留」。
+- 配置字段 `default` 六价格：本机 `config.yaml` 已填 DeepSeek 官方峰谷价（峰值 input 2 / cached 0.04 / output 8，谷值 1 / 0.02 / 4）并重启服务验证（控制器执行，见最终汇报）；该动作不属于仓库改动。
