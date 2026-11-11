@@ -93,6 +93,14 @@ function installApi(options: ApiOptions = {}) {
       profiles = [...profiles, created]
       return json(created, 201)
     }
+    const updateMatch = /^\/api\/agent\/model-profiles\/([^/]+)$/.exec(url.pathname)
+    if (updateMatch && request.method === 'PUT') {
+      const name = decodeURIComponent(updateMatch[1]!)
+      profiles = profiles.map((item) => (
+        item.name === name ? { ...item, ...(body as Json) } : item
+      ))
+      return json(profiles.find((item) => item.name === name))
+    }
     const probeMatch = /^\/api\/agent\/model-profiles\/([^/]+)\/probe$/.exec(url.pathname)
     if (probeMatch && request.method === 'POST') {
       const name = decodeURIComponent(probeMatch[1]!)
@@ -213,6 +221,53 @@ describe('model profiles settings section', () => {
     await waitFor(() => expect(api.puts()).toHaveLength(1))
     expect(api.puts()[0]?.path).toBe('/api/settings')
     expect(api.puts()[0]?.body).toEqual({ items: { 'llm.role_worker': 'x' } })
+  })
+
+  it('submits offpeak prices in create and update payloads', async () => {
+    const api = installApi({
+      profiles: [
+        defaultProfile(),
+        profile({
+          name: 'x',
+          price_input_offpeak: 1.2,
+          price_cached_input_offpeak: 0.6,
+          price_output_offpeak: 3.4,
+        }),
+      ],
+    })
+    renderModels()
+
+    fireEvent.click(await screen.findByRole('button', { name: '新建档案' }))
+    fireEvent.change(await screen.findByLabelText('名称'), { target: { value: 'offpeak-chat' } })
+    fireEvent.change(screen.getByLabelText('模型'), { target: { value: 'deepseek-chat' } })
+    fireEvent.change(screen.getByLabelText('空闲时段输入价（缓存未命中）'), { target: { value: '1.5' } })
+    fireEvent.change(screen.getByLabelText('空闲时段输出价'), { target: { value: '2.5' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.creates()).toHaveLength(1))
+    expect(api.creates()[0]?.body).toMatchObject({
+      price_input_offpeak: 1.5,
+      price_cached_input_offpeak: null,
+      price_output_offpeak: 2.5,
+    })
+
+    const row = await screen.findByRole('group', { name: '档案 x' })
+    fireEvent.click(within(row).getByRole('button', { name: '编辑' }))
+    expect(await screen.findByLabelText('空闲时段输入价（缓存未命中）')).toHaveValue('1.2')
+    expect(screen.getByLabelText('空闲时段输入价（缓存命中）')).toHaveValue('0.6')
+    expect(screen.getByLabelText('空闲时段输出价')).toHaveValue('3.4')
+
+    fireEvent.change(screen.getByLabelText('空闲时段输入价（缓存命中）'), { target: { value: '0.8' } })
+    fireEvent.change(screen.getByLabelText('空闲时段输出价'), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: '保存' }))
+
+    await waitFor(() => expect(api.puts()).toHaveLength(1))
+    expect(api.puts()[0]?.path).toBe('/api/agent/model-profiles/x')
+    expect(api.puts()[0]?.body).toMatchObject({
+      price_input_offpeak: 1.2,
+      price_cached_input_offpeak: 0.8,
+      price_output_offpeak: null,
+    })
   })
 
   it('检测能力显示结果', async () => {
